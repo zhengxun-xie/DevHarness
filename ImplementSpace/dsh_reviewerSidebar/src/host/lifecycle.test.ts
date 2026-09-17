@@ -47,7 +47,11 @@ const LEGAL: Array<[ReviewStatus, ReviewStatus]> = [
   ['open', 'rejected'],
   ['open', 'duplicated'],
   ['open', 'needs_review'],
+  // needs_review exits to any non-terminal status (anchor auto-exit, ticket 04).
   ['needs_review', 'open'],
+  ['needs_review', 'accepted'],
+  ['needs_review', 'implementing'],
+  ['needs_review', 'verifying'],
   ['needs_review', 'rejected'],
   ['needs_review', 'duplicated'],
   ['accepted', 'implementing'],
@@ -74,8 +78,7 @@ const ILLEGAL: Array<[ReviewStatus, ReviewStatus]> = [
   ['open', 'resolved'],
   ['accepted', 'resolved'],
   ['accepted', 'verifying'],
-  ['needs_review', 'accepted'],
-  ['needs_review', 'implementing'],
+  ['needs_review', 'resolved'], // terminal is never restorable
   ['verifying', 'accepted'],
   ['resolved', 'open'], // Reopen: lands with its own ticket — not legal yet.
   ['resolved', 'implementing'],

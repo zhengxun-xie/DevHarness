@@ -67,6 +67,8 @@ export type ReviewerKey =
   | 'anchor.confirmNeedsReview'
   | 'anchor.docMissing'
   | 'anchor.snapshot'
+  | 'anchor.rebind'
+  | 'anchor.rebindHint'
   // selection bar
   | 'selectionBar.prompt'
   | 'selectionBar.add'
@@ -213,6 +215,8 @@ const en: Record<ReviewerKey, string> = {
   'anchor.confirmNeedsReview': 'Mark as needs review',
   'anchor.docMissing': 'Document missing',
   'anchor.snapshot': 'Original quote',
+  'anchor.rebind': 'Rebind anchor',
+  'anchor.rebindHint': 'Select the new text range for',
 
   'selectionBar.prompt': 'Text selected in {document} from the left panel',
   'selectionBar.add': 'Add review',
@@ -360,6 +364,8 @@ const zh: Record<ReviewerKey, string> = {
   'anchor.confirmNeedsReview': '标记为待复核',
   'anchor.docMissing': '文档缺失',
   'anchor.snapshot': '原文快照',
+  'anchor.rebind': '重新定位锚点',
+  'anchor.rebindHint': '选中新的文档片段，重绑锚点：',
 
   'selectionBar.prompt': '左栏在 {document} 中选中了一段文字',
   'selectionBar.add': '添加评审',

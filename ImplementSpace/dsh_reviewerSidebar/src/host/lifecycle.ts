@@ -45,8 +45,11 @@ type Allowed = Partial<Record<ReviewStatus, ReviewStatus[]>>
 const ALLOWED: Allowed = {
   // Awaiting a decision; discussion no longer moves the state (spec §5).
   open: ['accepted', 'rejected', 'duplicated', 'needs_review'],
-  // Anchor could not be relocated: wait for a human to rebind it.
-  needs_review: ['open', 'rejected', 'duplicated'],
+  // Anchor could not be relocated: wait for a human to re-bind it.
+  // needs_review can return to ANY non-terminal status — that is the anchor
+  // ticket's auto-exit restoring the pre-entry state (design/06 §12); the UI
+  // only exposes rebind / reject / duplicate there.
+  needs_review: ['open', 'accepted', 'implementing', 'verifying', 'rejected', 'duplicated'],
   accepted: ['implementing', 'open'],
   // "Declared done" lands directly in verifying (no `implemented` stopover);
   // accepted covers implementation blocked / approach changed.

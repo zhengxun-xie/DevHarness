@@ -40,9 +40,13 @@ export interface DocumentReviewViewProps {
   document: string
   initialReviewId?: string | null
   refreshSignal: number
+  /** When set, selections rebind this review's anchor instead of composing. */
+  rebindFor?: string | null
   onBack: () => void
   onOpenReview: (reviewId: string) => void
   onCompose: (draft: ComposerDraft) => void
+  /** Called after a rebind succeeds; the panel refreshes and navigates. */
+  onRebindDone: (reviewId: string) => void
   t: TranslateFunction
 }
 
@@ -79,9 +83,11 @@ export function DocumentReviewView({
   document,
   initialReviewId,
   refreshSignal,
+  rebindFor = null,
   onBack,
   onOpenReview,
   onCompose,
+  onRebindDone,
   t,
 }: DocumentReviewViewProps): ReactNode {
   const [doc, setDoc] = useState<DocumentResponse | null>(null)
@@ -303,9 +309,19 @@ export function DocumentReviewView({
   function composeFromFab(): void {
     if (!fab || doc === null) return
     const anchor = buildAnchorDraft(content, doc.headings, fab.start, fab.end)
-    onCompose({ projectId, document, anchor })
     setFab(null)
     window.getSelection()?.removeAllRanges()
+    if (rebindFor !== null && rebindFor !== undefined) {
+      // Rebind mode (design/06 §12): the same selection flow feeds the
+      // re-anchor endpoint instead of creating a new review.
+      void api.reanchorReview({ projectId, reviewId: rebindFor, target: anchor })
+        .then(() => onRebindDone(rebindFor))
+        .catch((cause: unknown) => {
+          setError(cause instanceof Error ? cause.message : String(cause))
+        })
+      return
+    }
+    onCompose({ projectId, document, anchor })
   }
 
   function openGroup(group: DocumentReviewAnchor[], event: React.MouseEvent): void {
@@ -351,6 +367,9 @@ export function DocumentReviewView({
         <span className="dbr-detail-id">{document}</span>
       </div>
       {error !== null && <div className="dbr-error">{error}</div>}
+      {rebindFor !== null && rebindFor !== undefined && (
+        <div className="dbr-toast dbr-ok">{t('anchor.rebindHint')} <b>{rebindFor}</b></div>
+      )}
 
       <div className="dbr-doc" ref={wrapRef} style={{ position: 'relative' }}>
         <div ref={bodyRef} onMouseUp={captureSelection} onKeyUp={captureSelection}>
@@ -380,9 +399,14 @@ export function DocumentReviewView({
                         <button
                           key={review.reviewId}
                           type="button"
-                          className={`dbr-gutter-badge dbr-num-sev-${review.severity}${TERMINAL_STATUS_SET.has(review.status) ? ' dbr-is-terminal' : ''}`}
+                          className={`dbr-gutter-badge dbr-num-sev-${review.severity}${TERMINAL_STATUS_SET.has(review.status) ? ' dbr-is-terminal' : ''}${review.needsReviewCandidate && review.status !== 'needs_review' ? ' dbr-is-drift' : ''}`}
                           data-review-ids={review.reviewId}
-                          title={`${review.number} ${review.reviewId}`}
+                          title={
+                            `${review.number} ${review.reviewId}`
+                            + (review.needsReviewCandidate && review.status !== 'needs_review'
+                              ? ` · ${t('anchor.needsReview')}`
+                              : '')
+                          }
                           onClick={event => openGroup([review], event)}
                         >{review.number}</button>
                       ))}
@@ -408,7 +432,7 @@ export function DocumentReviewView({
             onMouseDown={event => event.stopPropagation()}
             onClick={composeFromFab}
           >
-            {t('document.addReview')}
+            {rebindFor !== null && rebindFor !== undefined ? t('anchor.rebind') : t('document.addReview')}
           </button>
         )}
 
@@ -429,6 +453,9 @@ export function DocumentReviewView({
                   {review.selectedText ? truncate(review.selectedText, 40) : review.reviewId}
                 </span>
                 <span className="dbr-detail-meta">{statusLabel(t, review.status)}</span>
+                {review.needsReviewCandidate && review.status !== 'needs_review' && (
+                  <span className="dbr-drift-chip">{t('anchor.needsReview')}</span>
+                )}
               </button>
             ))}
           </div>

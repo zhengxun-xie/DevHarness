@@ -5,73 +5,67 @@
 对齐 [DES-003](../../../../Downloads/robot_studio_new/DES-003-Document%20Anchor%20&%20Review%20Thread%20Model.md) 的完整链路，并把「锚点失效需人复核」固化为 `needs_review` 一等状态：
 
 ```text
-OPEN → DISCUSSING → ACCEPTED → IMPLEMENTING → IMPLEMENTED → VERIFYING → RESOLVED
+OPEN → ACCEPTED → IMPLEMENTING → VERIFYING → RESOLVED
 ```
 
-旁路：`OPEN → REJECTED`、`OPEN → DUPLICATED`，以及锚点失效触发的 `NEEDS_REVIEW`。完整状态机：
+旁路：`OPEN → REJECTED`、`OPEN → DUPLICATED`，以及锚点失效自动触发的 `NEEDS_REVIEW`。
+
+**写侧状态集收敛为 8 个**（lifecycle refactor §5）：原 `discussing` 合并进 `open`（讨论由线程承载，不再是一种状态），原 `implemented` 合并进 `verifying`（声明完成直接进入待验收）。旧文件里的 `discussing`/`implemented` 在**读取时**归一化到新词表，线程历史条目保留原名作为审计记录。
 
 ```mermaid
 stateDiagram-v2
     [*] --> open: 创建
-    open --> discussing: 添加讨论 / 回复
     open --> accepted: Accept（生成 Decision）
     open --> rejected: Reject（reason + Decision）
     open --> duplicated: 标记重复(duplicatedOf + Decision)
+    open --> needs_review: 锚点 orphaned（系统自动，唯一自动状态变更）
 
-    discussing --> accepted: 达成一致
-    discussing --> rejected: 拒绝
-    discussing --> duplicated: 标记重复
-    discussing --> open: 撤回讨论结论
-
-    open/discussing --> needs_review: 锚点 modified/outdated/orphaned，人工确认
-    needs_review --> discussing: 仍成立，重新进入讨论
+    needs_review --> open: 人工重绑锚点后自动退回进入前状态
     needs_review --> rejected: 不再成立
     needs_review --> duplicated: 已被其他 Review 覆盖
 
     accepted --> implementing: Send to Agent / 开始实施
-    accepted --> discussing: 重新讨论
+    accepted --> open: 撤回接受
 
-    implementing --> implemented: 实施侧声明完成（Agent 回调或手动）
-    implementing --> discussing: 实施受阻/方案变更
-
-    implemented --> verifying: 提交验证证据（测试/Diff）
-    implemented --> implementing: 打回继续实施
+    implementing --> verifying: 声明完成（Agent 回连或手动，附证据）
+    implementing --> accepted: 实施受阻/方案变更
+    implementing --> open: 撤回
 
     verifying --> resolved: 人工验收通过（仅人）
-    verifying --> implementing: 验收不通过(FAILED)
+    verifying --> implementing: 验收不通过
     verifying --> needs_review: 验证中发现锚点/上下文已实质变化
+    verifying --> open: 撤回
 
     rejected --> [*]
     duplicated --> [*]
     resolved --> [*]
 ```
 
-终态：`resolved` / `rejected` / `duplicated`。
+终态：`resolved` / `rejected` / `duplicated`（Reopen 见 §2 约束与该状态终态表的后续说明）。
 
 ## 2. 迁移规则
 
 | from | to | 必要条件 |
 | --- | --- | --- |
-| open | discussing | 至少一条讨论条目（创建时填写 comment 不触发，需追加回复） |
-| open/discussing | accepted | 生成 `decision: accept`（见 03 §6） |
-| open/discussing | rejected | `reason` 非空 + `decision: reject` |
-| open/discussing | duplicated | `duplicatedOf` 指向存在 Review + `decision: duplicate` |
-| open/discussing | needs_review | 锚点解析为 modified/outdated/orphaned 且人确认 |
-| needs_review | discussing | 人确认仍成立 |
+| open | accepted | 生成 `decision: accept`（见 03 §6） |
+| open | rejected | `reason` 非空 + `decision: reject` |
+| open | duplicated | `duplicatedOf` 指向存在 Review + `decision: duplicate` |
+| open | needs_review | 锚点解析为 `orphaned`，系统自动写入（§3） |
+| needs_review | 进入前的原状态 | 人工重绑锚点后自动退回（§3） |
 | needs_review | rejected/duplicated | 人确认不再成立 |
 | accepted | implementing | 经过 Send to Agent，或手动标记开始 |
-| implementing | implemented | 实施侧声明完成（M4 Agent 任务完成回调或手动） |
-| implemented | verifying | 附带验证证据（测试路径 / Diff 摘要） |
+| implementing | verifying | 声明完成 + 验证证据（测试路径 / Diff 摘要）；Agent 回连可一键确认 |
 | verifying | resolved | 人工确认验收（终态判定权始终在人，Agent 不可） |
 | verifying | implementing | 验收打回（FAILED），线程记录原因 |
 | verifying | needs_review | 验证中发现锚点已实质失效 |
-| 任意非终态 | discussing | 出现新的实质讨论时允许回退（open↔discussing 例外） |
+| 任意非终态 | open | 撤回/回退（不需要额外条件） |
 
 约束：
 
-- 非法迁移返回 409，`error` 形如 `illegal transition: verifying -> open`；
+- 非法迁移返回 409，`error` 形如 `illegal transition: verifying -> accepted`；
 - 每次迁移在正文 `## Thread` 追加一条 `kind: status` 条目（含 `fromStatus/toStatus/时间/操作人/reason`）；
-- 终态记录不可追加普通评论（如要复活，M5 提供「Reopen」，先不做）；
+- **讨论不改变状态**：追加评论/回复只写线程条目，`open` 不再自动跳到任何状态；
+- 终态记录不可追加普通评论（如要复活，走 Reopen 流程）；
 - `duplicated` 写入 `duplicated_of`，并在被指向 Review 的 related 中体现反向链接（列表层计算，不双向写文件）。
 
 ## 3. Anchor Status 与 Review Status 分离
@@ -81,7 +75,22 @@ stateDiagram-v2
 - **Review Status**：评审的工作流结论（open/accepted/resolved…），只经状态机迁移；
 - **Anchor Status**：锚点在当前文档中的健康度（valid/moved/modified/outdated/orphaned），由 Resolver 实时计算，**不落盘**。
 
-交互规则：文档变化导致锚点为 modified/outdated/orphaned 时，UI 提示「NEEDS_REVIEW 候选」，由人显式把 Review 迁入 `needs_review`——**文档变化不自动改变 Review Status**。
+交互规则（**修订：除 `orphaned` 外，文档变化不自动改变 Review Status**）：
+
+| 锚点状态 | 处置 | 打扰人 |
+| --- | --- | --- |
+| `valid` | 无 | 否 |
+| `moved` | 静默更新 `positional` 行号/偏移 | 否 |
+| `modified` | 静默更新位置 + 一条 `kind: system` 线程条目 | 否 |
+| `outdated` | 同上 + 文档视图轻量徽标（`needsReviewCandidate`） | 否 |
+| `orphaned` | **自动写入 `→ needs_review`**（唯一自动状态变更） | 是（仅此一种） |
+
+细节：
+
+- 自动写入带乐观锁防护（按读取时的 sha 校验，冲突则静默跳过、下次读重试）；读路径是幂等的——文档未变化时不产生任何写入；
+- 进入 `needs_review` 后由人处理；**人工重新选中文档片段重绑锚点**是唯一退出方式，退出后自动退回进入前的原状态（从线程最近的 `kind: status` 条目反推）；
+- 抖动防护：`needs_review` 期间文档即使恢复可定位也不自动退出；
+- 终态 Review 不受锚点影响（锚点健康度照常展示，但不再写状态）。
 
 ## 4. Severity 与 Type
 

@@ -41,7 +41,7 @@ export interface ReviewerTabParams {
 type Route =
   | { name: 'list' }
   | { name: 'detail'; reviewId: string }
-  | { name: 'document'; document: string; reviewId: string | null }
+  | { name: 'document'; document: string; reviewId: string | null; rebindFor?: string | null }
   | { name: 'composer'; draft: ComposerDraft }
 
 export type ReviewerPanelProps =
@@ -364,6 +364,8 @@ export function ReviewerPanel({ t, useTabInfo }: ReviewerPanelProps): ReactNode 
           }}
           onOpenDocument={(document, reviewId) =>
             setRoute({ name: 'document', document, reviewId })}
+          onRebind={(document, reviewId) =>
+            setRoute({ name: 'document', document, reviewId: null, rebindFor: reviewId })}
           t={t}
         />
       )}
@@ -374,9 +376,15 @@ export function ReviewerPanel({ t, useTabInfo }: ReviewerPanelProps): ReactNode 
           document={route.document}
           initialReviewId={route.reviewId}
           refreshSignal={refreshSignal}
+          rebindFor={route.rebindFor ?? null}
           onBack={() => setRoute({ name: 'list' })}
           onOpenReview={reviewId => setRoute({ name: 'detail', reviewId })}
           onCompose={draft => setRoute({ name: 'composer', draft })}
+          onRebindDone={rebindId => {
+            notifyChanged(route.document, [rebindId])
+            setRefreshSignal(signal => signal + 1)
+            setRoute({ name: 'detail', reviewId: rebindId })
+          }}
           t={t}
         />
       )}

@@ -54,9 +54,9 @@ const PLAIN_ACTIONS: Partial<Record<ReviewStatus, Array<{ to: ReviewStatus; key:
     { to: 'accepted', key: 'transition.accept' },
     { to: 'needs_review', key: 'transition.needsReview' },
   ],
-  needs_review: [
-    { to: 'open', key: 'transition.backToOpen' },
-  ],
+  // needs_review has no plain transitions: its way out is the primary
+  // "rebind anchor" action (auto-exit back to the pre-entry status), with
+  // Reject / Duplicate as the secondary escapes (refactor §9.1).
   accepted: [
     { to: 'implementing', key: 'transition.startImplementing' },
     { to: 'open', key: 'transition.backToOpen' },
@@ -83,6 +83,8 @@ export interface ReviewDetailProps {
   onBack: () => void
   onChanged: (document: string) => void
   onOpenDocument: (document: string, reviewId: string | null) => void
+  /** Start rebind mode: pick a fresh anchor for this review in the document. */
+  onRebind: (document: string, reviewId: string) => void
   t: TranslateFunction
 }
 
@@ -99,6 +101,7 @@ export function ReviewDetail({
   onBack,
   onChanged,
   onOpenDocument,
+  onRebind,
   t,
 }: ReviewDetailProps): ReactNode {
   const [review, setReview] = useState<ReviewRecord | null>(null)
@@ -497,6 +500,12 @@ export function ReviewDetail({
               {t('transition.duplicate')}
             </button>
           </>
+        )}
+        {review.status === 'needs_review' && (
+          <button type="button" className="dbr-primary" disabled={busy}
+            onClick={() => onRebind(review.document, review.reviewId)}>
+            {t('anchor.rebind')}
+          </button>
         )}
         {review.status === 'implementing' && (
           <button type="button" className="dbr-primary" disabled={busy}

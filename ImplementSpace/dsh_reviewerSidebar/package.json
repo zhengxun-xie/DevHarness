@@ -34,7 +34,7 @@
     "build": "tsdown",
     "watch": "tsdown --watch",
     "typecheck": "tsc --noEmit",
-    "test": "node --test src/host/lifecycle.test.ts src/host/review-files.test.ts src/host/git-read.test.ts"
+    "test": "node --test src/host/lifecycle.test.ts src/host/review-files.test.ts src/host/git-read.test.ts src/host/anchor-triage.test.ts"
   },
   "files": [
     "lib/**/*.js",

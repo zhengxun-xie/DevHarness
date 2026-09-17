@@ -280,6 +280,13 @@ const CSS = `
 }
 .dbr-gutter-badge:hover { background: rgba(0,0,0,0.06); }
 .dbr-gutter-badge.dbr-is-terminal { opacity: 0.5; }
+/* Anchor drifted (modified/outdated) but the review's status has not moved:
+   a quiet "looks stale" marker, never a status change (06 §3). */
+.dbr-gutter-badge.dbr-is-drift { box-shadow: 0 0 0 2px rgba(209,127,47,0.45); }
+.dbr-drift-chip {
+  font-size: 9.5px; padding: 0 4px; border-radius: 6px; flex: 0 0 auto;
+  background: rgba(209,127,47,0.14); color: #a4621f;
+}
 .dbr-num-sev-info { color: #8a8a8a; }
 .dbr-num-sev-minor { color: #2f7fd1; }
 .dbr-num-sev-major { color: #d17f2f; }

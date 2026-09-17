@@ -20,6 +20,8 @@ import type {
   GetReviewResponse,
   ListReviewsResponse,
   ProjectsResponse,
+  ReanchorRequest,
+  ReanchorResponse,
   RemoveRequest,
   SendToAgentRequest,
   SendToAgentResponse,
@@ -86,6 +88,9 @@ export const api = {
   },
   transitionReview(input: TransitionRequest): Promise<TransitionResponse> {
     return post('/review/transition', input)
+  },
+  reanchorReview(input: ReanchorRequest): Promise<ReanchorResponse> {
+    return post('/review/reanchor', input)
   },
   removeReview(input: RemoveRequest): Promise<{ removed: true }> {
     return post('/review/remove', input)

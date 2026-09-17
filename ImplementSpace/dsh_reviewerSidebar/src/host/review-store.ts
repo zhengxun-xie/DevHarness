@@ -27,6 +27,7 @@ import {
   type ParsedReviewFile,
 } from './review-files.ts'
 import { resolveAnchor, parseHeadings } from './anchors.ts'
+import { decideAnchorTriage, preNeedsReviewStatus } from './anchor-triage.ts'
 import { scanReviewCommits } from './git-read.ts'
 import {
   assertTransition,
@@ -35,6 +36,7 @@ import {
 } from './lifecycle.ts'
 import { REVIEW_TYPES, SEVERITIES } from '../protocol.ts'
 import type {
+  AnchorResolution,
   AppendRequest,
   AuthorRef,
   CreateReviewRequest,
@@ -48,12 +50,14 @@ import type {
   ProjectRecord,
   ProjectsResponse,
   ReviewAnchor,
+  ReviewAnchorDraft,
   ReviewDecision,
   ReviewRecord,
   ReviewStatus,
   ReviewSummary,
   ThreadEntry,
   RemoveRequest,
+  ReanchorRequest,
   TransitionRequest,
   WorkspaceInfo,
 } from '../protocol.ts'
@@ -262,7 +266,10 @@ export class ReviewStore {
     }
     const doc = readDocument(project.path, parsed.record.document)
     const anchorResolution = resolveAnchor(parsed.record.target, doc.content)
-    return { review: parsed.record, anchorResolution }
+    // Auto-triage may rewrite the record (position follow / needs_review) and
+    // returns the resolution that matches the post-triage state.
+    const { record, resolution } = this.applyAnchorTriage(project, parsed, anchorResolution)
+    return { review: record, anchorResolution: resolution }
   }
 
   getDocument(projectId: string, document: string): DocumentResponse {
@@ -274,7 +281,7 @@ export class ReviewStore {
     const numbers = this.backfillNumbers(project.path)
     const reviews: DocumentReviewAnchor[] = []
     for (const { reviewId } of listReviewFiles(project.path)) {
-      let parsed: ParsedReviewFile
+      let parsed: ParsedReviewFile & { sha: string }
       try {
         parsed = readReviewFile(project.path, reviewId)
       } catch {
@@ -282,19 +289,20 @@ export class ReviewStore {
       }
       if (parsed.record.document !== document) continue
       const resolution = resolveAnchor(parsed.record.target, doc.content)
+      const { record: triaged, resolution: finalResolution } = this.applyAnchorTriage(project, parsed, resolution)
       reviews.push({
         reviewId,
-        number: numbers.get(reviewId) ?? parsed.record.number,
-        status: parsed.record.status,
-        severity: parsed.record.severity,
-        type: parsed.record.type,
-        selectedText: parsed.record.target.textual.selectedText,
-        lineStart: resolution.lineStart,
-        lineEnd: resolution.lineEnd,
-        matchOffsetStart: resolution.matchOffsetStart,
-        matchOffsetEnd: resolution.matchOffsetEnd,
-        anchorStatus: resolution.state,
-        needsReviewCandidate: resolution.needsReviewCandidate,
+        number: numbers.get(reviewId) ?? triaged.number,
+        status: triaged.status,
+        severity: triaged.severity,
+        type: triaged.type,
+        selectedText: triaged.target.textual.selectedText,
+        lineStart: finalResolution.lineStart,
+        lineEnd: finalResolution.lineEnd,
+        matchOffsetStart: finalResolution.matchOffsetStart,
+        matchOffsetEnd: finalResolution.matchOffsetEnd,
+        anchorStatus: finalResolution.state,
+        needsReviewCandidate: finalResolution.needsReviewCandidate,
       })
     }
     reviews.sort((a, b) => (a.lineStart ?? Number.MAX_SAFE_INTEGER) - (b.lineStart ?? Number.MAX_SAFE_INTEGER))
@@ -308,72 +316,8 @@ export class ReviewStore {
   async createReview(input: CreateReviewRequest): Promise<{ review: ReviewRecord }> {
     const { project } = this.useProject(input.projectId)
     const comment = input.comment.trim()
-    const selectedText = input.target.textual.selectedText
     if (comment === '') throw new ValidationError('comment must be non-empty')
-    const lineStart = input.target.positional.lineStart
-    const lineEnd = input.target.positional.lineEnd
-    if (!Number.isInteger(lineStart) || !Number.isInteger(lineEnd) || lineStart < 1 || lineEnd < lineStart) {
-      throw new ValidationError('lineStart/lineEnd must be positive integers with lineEnd >= lineStart')
-    }
-    // Document containment + existence (the selection came from a real file).
-    resolveDocument(project.path, input.document)
-    const doc = readDocument(project.path, input.document)
-    if (!doc.exists) throw new ValidationError(`document does not exist: ${input.document}`)
-
-    // New clients submit LF-normalized offsets (the left editor normalizes
-    // CRLF); validate against the normalized document for an exact bound.
-    const lfContent = doc.content.replace(/\r\n/g, '\n')
-    const rawOffsetStart = input.target.positional.offsetStart
-    const rawOffsetEnd = input.target.positional.offsetEnd
-    const isPoint = selectedText === ''
-    let offsetStart: number | undefined
-    let offsetEnd: number | undefined
-    if (isPoint) {
-      // Zero-length caret anchor: identical offsets, empty selection.
-      const caret = rawOffsetStart
-      if (typeof caret !== 'number'
-        || !Number.isInteger(caret)
-        || rawOffsetEnd !== caret
-        || caret < 0
-        || caret > lfContent.length) {
-        throw new ValidationError('point anchor requires an integer caret offset within the document')
-      }
-      offsetStart = caret
-      offsetEnd = caret
-    } else {
-      if (selectedText.trim() === '') throw new ValidationError('selectedText must be non-empty')
-      if (selectedText.length > MAX_SELECTED_CHARS) {
-        throw new ValidationError(`selectedText must be at most ${MAX_SELECTED_CHARS} characters`)
-      }
-      if (rawOffsetStart !== undefined && rawOffsetEnd !== undefined) {
-        if (!Number.isInteger(rawOffsetStart) || !Number.isInteger(rawOffsetEnd)
-          || rawOffsetStart < 0 || rawOffsetEnd < rawOffsetStart
-          || rawOffsetEnd > lfContent.length
-          || lfContent.slice(rawOffsetStart, rawOffsetEnd) !== selectedText) {
-          throw new ValidationError('offsetStart/offsetEnd must match selectedText in the document')
-        }
-        offsetStart = rawOffsetStart
-        offsetEnd = rawOffsetEnd
-      }
-    }
-
-    const prefix = input.target.textual.prefix ?? ''
-    const suffix = input.target.textual.suffix ?? ''
-    const fingerprintValue = sha256(prefix + selectedText + suffix)
-    const positional: ReviewAnchor['positional'] = offsetStart !== undefined
-      ? { lineStart, lineEnd, offsetStart, offsetEnd }
-      : { lineStart, lineEnd }
-    const anchor: ReviewAnchor = {
-      structural: {
-        section: input.target.structural.section ?? null,
-        headingPath: Array.isArray(input.target.structural.headingPath)
-          ? input.target.structural.headingPath.map(String)
-          : [],
-      },
-      textual: { selectedText, prefix, suffix },
-      positional,
-      fingerprint: { algorithm: 'sha256', value: fingerprintValue },
-    }
+    const { anchor, documentSha } = this.buildAnchor(project, input.document, input.target)
 
     const reviewId = await this.allocateReviewId(project.path)
     const number = await this.allocateReviewNumber(project.path, input.document)
@@ -384,7 +328,7 @@ export class ReviewStore {
       reviewId,
       number,
       document: input.document,
-      documentSha: input.documentSha ?? doc.sha,
+      documentSha: input.documentSha ?? documentSha,
       type: input.type ?? 'suggestion',
       severity: input.severity ?? 'minor',
       title: input.title?.trim() || null,
@@ -623,6 +567,52 @@ export class ReviewStore {
     const sha = this.writeWithSlug(project.path, parsed.record, parsed.extra)
     this.scheduleIndexRebuild(project)
     return { review: parsed.record, sha }
+  }
+
+  /**
+   * Manual re-anchor (design/06 §12, ticket 04): bind the review to a fresh
+   * document selection. When the review sits in `needs_review`, it auto-exits
+   * back to the status it entered from (inferred from the status timeline).
+   * This is the ONLY way out of needs_review — a document that becomes
+   * locatable again does not exit by itself (§17 jitter guard).
+   */
+  async reanchorReview(input: ReanchorRequest): Promise<{ review: ReviewRecord; sha: string }> {
+    const { project } = this.useProject(input.projectId)
+    const parsed = this.readRecord(project, input.reviewId)
+    this.assertSha(parsed.sha, input.expectedSha)
+    const record = parsed.record
+    const { anchor, documentSha } = this.buildAnchor(project, record.document, input.target)
+    record.target = anchor
+    record.documentSha = documentSha
+    const at = nowIso()
+    // Infer the restore target BEFORE pushing new entries (the inference scans
+    // the timeline for the entry that entered needs_review).
+    const restore = record.status === 'needs_review'
+      ? preNeedsReviewStatus(record.thread.entries)
+      : null
+    this.pushEntry(record, {
+      at,
+      author: REVIEWER_AUTHOR,
+      kind: 'system',
+      body: 'anchor re-bound to a fresh selection',
+    })
+    if (restore !== null) {
+      assertTransition('needs_review', restore)
+      this.pushEntry(record, {
+        at,
+        author: REVIEWER_AUTHOR,
+        kind: 'status',
+        body: 'anchor re-bound; leaving needs_review',
+        fromStatus: 'needs_review',
+        toStatus: restore,
+      })
+      record.status = restore
+      record.thread.status = restore
+    }
+    record.updatedAt = at
+    const sha = this.writeWithSlug(project.path, record, parsed.extra)
+    this.scheduleIndexRebuild(project)
+    return { review: record, sha }
   }
 
   /**
@@ -871,6 +861,160 @@ export class ReviewStore {
     parsed.record.updatedAt = nowIso()
     this.writeWithSlug(project.path, parsed.record, parsed.extra)
     this.scheduleIndexRebuild(project)
+  }
+
+  /**
+   * Validate a client-supplied anchor draft against the live document and
+   * materialize the persisted ReviewAnchor (design/03 §3.1). Shared by review
+   * creation and manual re-anchoring so both paths enforce the same rules:
+   * containment, existence, and LF-normalized offset/exactness checks.
+   */
+  private buildAnchor(
+    project: ProjectRecord,
+    document: string,
+    draft: ReviewAnchorDraft,
+  ): { anchor: ReviewAnchor; documentSha: string | null } {
+    const selectedText = draft.textual.selectedText
+    const lineStart = draft.positional.lineStart
+    const lineEnd = draft.positional.lineEnd
+    if (!Number.isInteger(lineStart) || !Number.isInteger(lineEnd) || lineStart < 1 || lineEnd < lineStart) {
+      throw new ValidationError('lineStart/lineEnd must be positive integers with lineEnd >= lineStart')
+    }
+    // Document containment + existence (the selection came from a real file).
+    resolveDocument(project.path, document)
+    const doc = readDocument(project.path, document)
+    if (!doc.exists) throw new ValidationError(`document does not exist: ${document}`)
+
+    // New clients submit LF-normalized offsets (the left editor normalizes
+    // CRLF); validate against the normalized document for an exact bound.
+    const lfContent = doc.content.replace(/\r\n/g, '\n')
+    const rawOffsetStart = draft.positional.offsetStart
+    const rawOffsetEnd = draft.positional.offsetEnd
+    const isPoint = selectedText === ''
+    let offsetStart: number | undefined
+    let offsetEnd: number | undefined
+    if (isPoint) {
+      // Zero-length caret anchor: identical offsets, empty selection.
+      const caret = rawOffsetStart
+      if (typeof caret !== 'number'
+        || !Number.isInteger(caret)
+        || rawOffsetEnd !== caret
+        || caret < 0
+        || caret > lfContent.length) {
+        throw new ValidationError('point anchor requires an integer caret offset within the document')
+      }
+      offsetStart = caret
+      offsetEnd = caret
+    } else {
+      if (selectedText.trim() === '') throw new ValidationError('selectedText must be non-empty')
+      if (selectedText.length > MAX_SELECTED_CHARS) {
+        throw new ValidationError(`selectedText must be at most ${MAX_SELECTED_CHARS} characters`)
+      }
+      if (rawOffsetStart !== undefined && rawOffsetEnd !== undefined) {
+        if (!Number.isInteger(rawOffsetStart) || !Number.isInteger(rawOffsetEnd)
+          || rawOffsetStart < 0 || rawOffsetEnd < rawOffsetStart
+          || rawOffsetEnd > lfContent.length
+          || lfContent.slice(rawOffsetStart, rawOffsetEnd) !== selectedText) {
+          throw new ValidationError('offsetStart/offsetEnd must match selectedText in the document')
+        }
+        offsetStart = rawOffsetStart
+        offsetEnd = rawOffsetEnd
+      }
+    }
+
+    const prefix = draft.textual.prefix ?? ''
+    const suffix = draft.textual.suffix ?? ''
+    const fingerprintValue = sha256(prefix + selectedText + suffix)
+    const positional: ReviewAnchor['positional'] = offsetStart !== undefined
+      ? { lineStart, lineEnd, offsetStart, offsetEnd }
+      : { lineStart, lineEnd }
+    const anchor: ReviewAnchor = {
+      structural: {
+        section: draft.structural.section ?? null,
+        headingPath: Array.isArray(draft.structural.headingPath)
+          ? draft.structural.headingPath.map(String)
+          : [],
+      },
+      textual: { selectedText, prefix, suffix },
+      positional,
+      fingerprint: { algorithm: 'sha256', value: fingerprintValue },
+    }
+    return { anchor, documentSha: doc.sha }
+  }
+
+  /**
+   * Anchor auto-triage (design/06 §12, ticket 04). Called on the read path.
+   * Debounced: nothing is written unless the fresh resolution actually changes
+   * the persisted anchor position or the review must enter needs_review — an
+   * unchanged document is a strict no-op, so reads never amplify into writes.
+   *
+   * The write is guarded by a fresh sha check: a concurrent writer wins and the
+   * next read simply re-tries the same triage outcome.
+   */
+  private applyAnchorTriage(
+    project: ProjectRecord,
+    parsed: ParsedReviewFile & { sha: string },
+    resolution: AnchorResolution,
+  ): { record: ReviewRecord; resolution: AnchorResolution } {
+    const record = parsed.record
+    const positionalChanged = resolution.lineStart !== null && resolution.lineEnd !== null
+      && (record.target.positional.lineStart !== resolution.lineStart
+        || record.target.positional.lineEnd !== resolution.lineEnd)
+    const decision = decideAnchorTriage({
+      state: resolution.state,
+      status: record.status,
+      positionalChanged,
+    })
+    if (decision.action === 'none') return { record, resolution }
+
+    let fresh: ParsedReviewFile & { sha: string }
+    try {
+      fresh = this.readRecord(project, record.reviewId)
+    } catch {
+      return { record, resolution }
+    }
+    if (fresh.sha !== parsed.sha) return { record, resolution }
+
+    const at = nowIso()
+    if (decision.action === 'auto-needs-review') {
+      assertTransition(record.status, 'needs_review')
+      this.pushEntry(record, {
+        at,
+        author: REVIEWER_AUTHOR,
+        kind: 'status',
+        body: decision.note,
+        fromStatus: record.status,
+        toStatus: 'needs_review',
+      })
+      record.status = 'needs_review'
+      record.thread.status = 'needs_review'
+    } else {
+      // Position follow: adopt the fresh line range. Fuzzy matches report no
+      // offsets, so stale offsets from the old text are dropped rather than
+      // lying about the match.
+      record.target.positional = {
+        lineStart: resolution.lineStart as number,
+        lineEnd: resolution.lineEnd as number,
+        ...(resolution.matchOffsetStart !== null && resolution.matchOffsetEnd !== null
+          ? { offsetStart: resolution.matchOffsetStart, offsetEnd: resolution.matchOffsetEnd }
+          : {}),
+      }
+      if (decision.action === 'system-note') {
+        this.pushEntry(record, {
+          at,
+          author: REVIEWER_AUTHOR,
+          kind: 'system',
+          body: decision.note,
+        })
+      }
+    }
+    record.updatedAt = at
+    this.writeWithSlug(project.path, record, parsed.extra)
+    this.scheduleIndexRebuild(project)
+    // The triage just rewrote the anchor; re-resolve so callers see the
+    // resolution that matches the persisted state (usually settles to valid).
+    const doc = readDocument(project.path, record.document)
+    return { record, resolution: resolveAnchor(record.target, doc.content) }
   }
 
   /**

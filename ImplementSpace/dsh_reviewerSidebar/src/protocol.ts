@@ -490,6 +490,23 @@ export interface TransitionResponse {
   sha: string
 }
 
+/**
+ * Manual re-anchor (design/06 §12, ticket 04): bind the review to a fresh
+ * selection. When the review sits in `needs_review` the host auto-exits back to
+ * the status it entered from.
+ */
+export interface ReanchorRequest {
+  projectId: string
+  reviewId: string
+  target: ReviewAnchorDraft
+  expectedSha?: string | null
+}
+
+export interface ReanchorResponse {
+  review: ReviewRecord
+  sha: string
+}
+
 export interface RemoveRequest {
   projectId: string
   reviewId: string

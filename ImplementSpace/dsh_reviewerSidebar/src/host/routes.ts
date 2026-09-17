@@ -23,6 +23,7 @@ import type {
   EditReviewRequest,
   EditThreadEntryRequest,
   RemoveRequest,
+  ReanchorRequest,
   SendToAgentRequest,
   TransitionRequest,
 } from '../protocol.ts'
@@ -269,6 +270,21 @@ export function reviewerRoutes(store: ReviewStore, dispatcher: AgentDispatcher):
           sendError(res, 400, 'projectId, reviewId and to must be strings'); return
         }
         sendJson(res, 200, await store.transitionReview(body as TransitionRequest))
+      },
+    },
+    {
+      method: 'POST',
+      path: `${DEVBUDDY_API_PREFIX}/review/reanchor`,
+      handler: async (req, res) => {
+        const body = await readBody(req) as Partial<ReanchorRequest>
+        if (typeof body.projectId !== 'string' || typeof body.reviewId !== 'string') {
+          sendError(res, 400, 'projectId and reviewId must be strings'); return
+        }
+        const target = body.target
+        if (target === undefined || target === null || typeof target !== 'object') {
+          sendError(res, 400, 'target anchor is required'); return
+        }
+        sendJson(res, 200, await store.reanchorReview(body as ReanchorRequest))
       },
     },
     {

@@ -54,5 +54,65 @@
 - 历史条目 `[discussing → open]` 数据保原名、**渲染时映射**为收敛后词表（refactor §8.3 明确要求），故该条会显示为 `open → open`；这是文档化契约，换取 UI 只有一套状态词表。
 - `implementing→verifying` 保留证据弹窗（合并原 `implemented→verifying` 的 evidence 采集，点击少一次、信息不丢）。
 
+**Commit**：`d205a17`。
+
+## Ticket 03 — Agent 回连一键建议 + commit trailer 回填 ✅
+
+**改动**：
+- `src/protocol.ts`：新增 `AgentCompletion`（at/sessionId/rpcId/provider/model）与 `ReviewRecord.agentCompletion: AgentCompletion | null`；`hasAgentCompletionSuggestion()` 是提示条唯一显示谓词（`implementing` 且 marker 非空）。
+- `src/host/review-files.ts`：`agent_completion` 键进 KNOWN_KEYS；新增 `agentCompletionFromYaml/ToYaml`；parse/serialize 双侧接线（旧文件缺键 → null，回环测试覆盖）。
+- `src/host/git-read.ts`（新）：从 context-builder 提取共享只读 git（`runGit`/`gitAvailable`）+ `parseReviewTrailers()`（整行匹配、大小写不敏感、去重、保持首见顺序）+ `scanReviewCommits()`（`git log` 有界扫描 `DevBuddy-Review: <id>` trailer）。
+- `src/host/context-builder.ts`：git helper 改为复用 `git-read.ts`（删掉本地重复实现，保持单一来源）。
+- `src/host/review-store.ts`：
+  - `appendAgentComment` 在 review 处于 `implementing` 时写入 `agentCompletion` 建议标记（**建议，不改状态**；Agent 永不裁决）。
+  - `transitionReview`：人类驱动的转换先清掉残留建议，再执行转换；进入 `accepted/implementing/verifying/resolved` 时同步 `backfillReviewCommits()`（trailer → `related.commits`，去重、best-effort 不阻塞转换）。
+  - `markAgentDispatched`：重新派发时清掉上一轮的陈旧建议。
+- `src/client/ReviewDetail.tsx`：`implementing` 且存在建议时渲染 `dbr-toast dbr-ok` 提示条 + 「确认完成」主按钮 → 弹 evidence 对话框直达 `verifying`。
+- `src/client/locales.ts`：新增 `agent.doneHint`（Agent 报告完成 · 待你验收）与 `transition.confirmAgentDone`（确认完成），en/zh 双侧。
+- 测试：新增 `git-read.test.ts`（trailer 解析 3 例、codec 回环 2 例、显示谓词全状态矩阵）；`package.json` test 脚本加入新文件。
+
+**自验**：
+- `pnpm typecheck` ✅
+- `pnpm test` **20/20** ✅
+- `pnpm build`（host ESM + client CJS）✅；client bundle 无 node 依赖（grep=0）✅
+
+**设计判读**：
+- trailer 回填刻意放在 **await 的同步写路径**（transitionReview 内）而不是 turn/end 的后台异步——避免游离异步写入与人工编辑并发时产生 sha 覆盖竞态；代价是回填时机略晚（下一个转换），可接受且有注释说明。
+- 「确认完成」按钮复用 `verify` 对话框（保留 evidence 采集），即 spec 所说「一键」= 点击后仍在同一弹窗内确认提交证据，而非无任何确认的静默迁移。
+
+**Commit**：`3c75be1`。
+
+## Ticket 04 — 锚点失效自动分流 ✅
+
+**改动**：
+- `src/host/anchor-triage.ts`（新，纯函数）：
+  - `decideAnchorTriage({state, status, positionalChanged})` → `none | silent-update | system-note | auto-needs-review`。终态恒 `none`；`needs_review` 期间恒 `none`（抖动防护）；`orphaned` 且非终态非 `needs_review` → `auto-needs-review`；`moved`/`modified`/`outdated` 仅在**行号真的变了**时才写（防抖：文档未变化 = 严格零写入）。
+  - `preNeedsReviewStatus(entries)`：从线程最近的「进入 needs_review」条目反推进入前状态；拒绝还原终态、缺历史回落 `open`。
+- `src/host/lifecycle.ts`：`needs_review` 出向扩为任意非终态（自动退出的合法边；UI 只暴露重绑/Reject/Duplicate）。
+- `src/host/review-store.ts`：
+  - 抽出共享 `buildAnchor()`（创建与重绑共用同一套校验：包含性、存在性、LF 偏移精确匹配、指纹计算）。
+  - 新增 `applyAnchorTriage()` 并在 `getReview`/`getDocument` 读路径接入：静默跟随位置 / 写 `kind:system` 条目 / 自动 `→ needs_review`；写前用**读取时的 sha 复核**，冲突即静默跳过（下次读重试）；仅在真的发生写入时重算 resolution（避免重复 Levenshtein）。
+  - 新增 `reanchorReview()`：重绑 `target`（同时更新 `documentSha`），若在 `needs_review` 则自动退回进入前状态并记 `kind:status`；**这是唯一退出方式**。
+  - 位置跟随时丢弃过期 offset（fuzzy 命中不报 offset，保留旧值等于说谎）。
+- `src/protocol.ts`：新增 `ReanchorRequest` / `ReanchorResponse`。
+- `src/host/routes.ts` + `src/client/api.ts`：新增 `POST /review/reanchor`。
+- `src/client/ReviewDetail.tsx`：`needs_review` 主按钮改为「重新定位锚点」（`onRebind`），移除 `needs_review` 的 `backToOpen` 平铺动作（对齐 refactor §9.1）。
+- `src/client/ReviewerPanel.tsx`：document 路由加 `rebindFor`，详情 → 文档重绑模式 → 完成后回详情并广播变更。
+- `src/client/DocumentReviewView.tsx`：重绑模式横幅 + FAB 文案切换，选区直接调 `reanchorReview`；对 `needsReviewCandidate` 的 gutter 徽标加 `dbr-is-drift` 点标 + popover 小标签。
+- `src/client/styles.ts`：`.dbr-is-drift` / `.dbr-drift-chip`。
+- `src/client/locales.ts`：`anchor.rebind` / `anchor.rebindHint`（en/zh）。
+- 文档：`design/06-lifecycle.md` —— §1 状态机与 mermaid 重画为 8 态（讨论不再推动状态）、§2 迁移表重写、**§3 原则修订为「除 orphaned 外不自动改状态」**并补分流表与幂等/抖动说明。
+- 测试：新增 `anchor-triage.test.ts`（终态不可动全矩阵、needs_review 抖动防护全矩阵、orphaned 唯一自动、静默跟随 debounce 矩阵、note 非空、进入前状态反推 5 例）；`lifecycle.test.ts` 同步新的 `needs_review` 出向边。
+
+**自验**：
+- `pnpm typecheck` ✅
+- `pnpm test` **30/30** ✅
+- `pnpm build`（host ESM + client CJS，两个产物均已重建）✅
+
+**设计判读（需你过目）**：
+1. **`modified`/`outdated` 的 system 条目只在行号变化时写**：spec §12 说「静默更新位置 + 一条 system 条目」，§15 又要求「防抖/幂等，避免读放大」。二者取交集后我选了「有真实位置变化才写」——文本漂移但行号未变的情况由列表徽标（`needsReviewCandidate`）体现，不刷线程。若你希望「每次检测到 modified 都留痕」，需要引入 `lastAnchorState` 字段来做真幂等（本次未加字段）。
+2. **重绑入口**：插件此前**没有**重绑锚点的写入路径，本 ticket 补了 host 方法 + 路由 + UI 流程（详情 →「重新定位锚点」→ 文档视图选片段 → 自动退回原状态）。由于该流程跨详情/文档两个视图，未做「选中即静默重绑」的猜测式交互。
+3. 位置跟随会**丢弃旧 offset**（fuzzy 命中无 offset），避免以过期精确区间误导后续匹配。
+
 **Commit**：见下条记录。
 
