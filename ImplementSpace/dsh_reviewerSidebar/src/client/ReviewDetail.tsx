@@ -23,6 +23,7 @@ import {
 } from './format.ts'
 import { TransitionDialog } from './TransitionDialog.tsx'
 import type { TransitionRequest } from './TransitionDialog.tsx'
+import type { ReviewerKey } from './locales.ts'
 import { AgentPreview } from './AgentPreview.tsx'
 import { REVIEW_TYPES, SEVERITIES, TERMINAL_STATUS_SET, hasAgentCompletionSuggestion, normalizeStatus } from '../protocol.ts'
 import type {
@@ -35,28 +36,37 @@ import type {
   ThreadEntry,
 } from '../protocol.ts'
 
-type PlainActionKey =
-  | 'transition.accept'
-  | 'transition.needsReview'
-  | 'transition.backToOpen'
-  | 'transition.startImplementing'
-  | 'transition.implementationBlocked'
-  | 'transition.resolve'
+interface ActionSpec {
+  to: ReviewStatus
+  key: ReviewerKey
+  /** Run through TransitionDialog with this kind instead of firing at once. */
+  dialog?: DialogKind
+}
 
 /**
- * Statuses reachable without extra input (plain transition buttons) for the
- * converged 8-status set (spec §5). `implementing -> verifying` collects
- * evidence and `verifying -> implementing` requires a reason, so both run
- * through TransitionDialog instead of appearing here.
+ * The ONE primary action per status (spec §8, refactor §9.1). `needs_review`
+ * is absent because its primary action is the rebind navigation, and `accepted`
+ * promotes Send to Agent instead of a transition — both are handled in the
+ * action row below.
  */
-const PLAIN_ACTIONS: Partial<Record<ReviewStatus, Array<{ to: ReviewStatus; key: PlainActionKey }>>> = {
+const PRIMARY_ACTION: Partial<Record<ReviewStatus, ActionSpec>> = {
+  open: { to: 'accepted', key: 'transition.accept' },
+  implementing: { to: 'verifying', key: 'transition.declareDone', dialog: 'verify' },
+  verifying: { to: 'resolved', key: 'transition.resolve' },
+  // Terminal states offer exactly one action: Reopen (spec §5.2).
+  resolved: { to: 'open', key: 'transition.reopen', dialog: 'reopen' },
+  rejected: { to: 'open', key: 'transition.reopen', dialog: 'reopen' },
+  duplicated: { to: 'open', key: 'transition.reopen', dialog: 'reopen' },
+}
+
+/**
+ * Everything else, kept legal but visually quiet (spec §8). Every legal
+ * outgoing transition stays reachable — hiding one would leave a state stuck.
+ */
+const SECONDARY_ACTIONS: Partial<Record<ReviewStatus, ActionSpec[]>> = {
   open: [
-    { to: 'accepted', key: 'transition.accept' },
     { to: 'needs_review', key: 'transition.needsReview' },
   ],
-  // needs_review has no plain transitions: its way out is the primary
-  // "rebind anchor" action (auto-exit back to the pre-entry status), with
-  // Reject / Duplicate as the secondary escapes (refactor §9.1).
   accepted: [
     { to: 'implementing', key: 'transition.startImplementing' },
     { to: 'open', key: 'transition.backToOpen' },
@@ -66,7 +76,7 @@ const PLAIN_ACTIONS: Partial<Record<ReviewStatus, Array<{ to: ReviewStatus; key:
     { to: 'open', key: 'transition.backToOpen' },
   ],
   verifying: [
-    { to: 'resolved', key: 'transition.resolve' },
+    { to: 'implementing', key: 'transition.failVerification', dialog: 'failVerify' },
     { to: 'needs_review', key: 'transition.needsReview' },
     { to: 'open', key: 'transition.backToOpen' },
   ],
@@ -88,9 +98,12 @@ export interface ReviewDetailProps {
   t: TranslateFunction
 }
 
+/** Dialog flavours: each collects the fields its transition requires. */
+type DialogKind = 'reject' | 'duplicate' | 'verify' | 'failVerify' | 'reopen'
+
 interface DialogState {
   to: ReviewStatus
-  kind: 'reject' | 'duplicate' | 'verify' | 'failVerify'
+  kind: DialogKind
 }
 
 export function ReviewDetail({
@@ -278,11 +291,21 @@ export function ReviewDetail({
   }
 
   const terminal = TERMINAL_STATUS_SET.has(review.status)
-  const actions = PLAIN_ACTIONS[review.status] ?? []
+  const primary = PRIMARY_ACTION[review.status]
+  const secondary = SECONDARY_ACTIONS[review.status] ?? []
   const canSendAgent = review.status === 'accepted' || review.status === 'open'
   const canRemove = REMOVABLE.has(review.status)
   const duplicates = siblings.filter(item => item.reviewId !== reviewId)
   const anchor = review.target
+
+  /** Fire one action spec: a dialog first when it needs fields, else direct. */
+  function fireAction(spec: ActionSpec): void {
+    if (spec.dialog !== undefined) {
+      setDialog({ to: spec.to, kind: spec.dialog })
+      return
+    }
+    void runTransition({ to: spec.to })
+  }
 
   return (
     <div>
@@ -478,16 +501,15 @@ export function ReviewDetail({
           )}
 
       <div className="dbr-actions">
-        {actions.map(action => (
+        {/* Secondary actions first: every legal move stays reachable, but
+            quiet — the status offers exactly one primary button (spec §8). */}
+        {secondary.map(spec => (
           <button
-            key={action.to}
+            key={spec.to}
             type="button"
             disabled={busy}
-            onClick={() => {
-              if (action.to === 'resolved') void runTransition({ to: 'resolved' })
-              else void runTransition({ to: action.to })
-            }}
-          >{t(action.key)}</button>
+            onClick={() => fireAction(spec)}
+          >{t(spec.key)}</button>
         ))}
         {(review.status === 'open' || review.status === 'needs_review') && (
           <>
@@ -501,28 +523,35 @@ export function ReviewDetail({
             </button>
           </>
         )}
+        {canSendAgent && (
+          <button
+            type="button"
+            className={review.status === 'accepted' ? 'dbr-primary' : undefined}
+            disabled={busy}
+            onClick={() => setAgentOpen(true)}
+          >{t('agent.send')}</button>
+        )}
+        {/* needs_review's primary action is the rebind navigation (§9.1). */}
         {review.status === 'needs_review' && (
           <button type="button" className="dbr-primary" disabled={busy}
             onClick={() => onRebind(review.document, review.reviewId)}>
             {t('anchor.rebind')}
           </button>
         )}
-        {review.status === 'implementing' && (
-          <button type="button" className="dbr-primary" disabled={busy}
-            onClick={() => setDialog({ to: 'verifying', kind: 'verify' })}>
-            {t('transition.declareDone')}
-          </button>
-        )}
-        {review.status === 'verifying' && (
-          <button type="button" disabled={busy}
-            onClick={() => setDialog({ to: 'implementing', kind: 'failVerify' })}>
-            {t('transition.failVerification')}
-          </button>
-        )}
-        {canSendAgent && (
-          <button type="button" className="dbr-primary" disabled={busy}
-            onClick={() => setAgentOpen(true)}>
-            {t('agent.send')}
+        {/* The one primary transition. While an agent-completion suggestion
+            waits, the implementing label switches to "Confirm done" (spec §8). */}
+        {primary !== undefined && (
+          <button
+            type="button"
+            className="dbr-primary"
+            disabled={busy}
+            onClick={() => fireAction(primary)}
+          >
+            {t(
+              review.status === 'implementing' && hasAgentCompletionSuggestion(review)
+                ? 'transition.confirmAgentDone'
+                : primary.key,
+            )}
           </button>
         )}
         {canRemove && (

@@ -5,6 +5,31 @@
 
 ---
 
+## 0. 落地状态（本文件已归档为「重构前」快照）
+
+本文件是重构前的实测盘点，**保持原样不再更新**；目标态见 `06-lifecycle.md`，可执行化见
+`.spec-workflow/reviewer-lifecycle-refactor/`（spec + 5 tickets）。各分析项落地情况：
+
+| 分析项 | 落地情况 |
+| --- | --- |
+| §1.1 状态全集 10 个 | ✅ 收敛为 8 个（合并 `discussing→open`、`implemented→verifying`，不新增名字） |
+| §1.2 迁移表 | ✅ `src/host/lifecycle.ts` 单一 `ALLOWED`，终态各有且仅有 `→ open` 一条出边 |
+| §1.3 特殊写入路径 | ✅ 锚点自动改状态收敛为 `anchor-triage.ts` 的纯函数判定 |
+| §1.4 三层开放/终态定义 | ✅ `src/protocol.ts` 单一来源，host 侧再导出 |
+| §2 痛点 1–4 | ✅ 讨论不再改状态；采纳→实施合并；Agent 回连为一键建议；Reopen 落地 |
+| §3 E1 死枚举 `defer`/`wont_fix` | ✅ 从 `DECISION_TYPES` 移除，历史数据降级为普通评论 |
+| §3 E2 决策不可追加 | ✅ `decisions[]` 追加式，旧单 `decision` 读入自动迁移 |
+| §3 E3 UI 语义错位（`markImplemented` 复用 `failVerification`） | ✅ 拆分为独立 `transition.declareDone` / `transition.confirmAgentDone` |
+| §3 E4 `needs_review` 与终态混判 | ✅ 明确非终态；列表归入「待验收」组 |
+| §3 E5 回连即改状态 | ✅ 回连只写 `agentCompletion` 建议，绝不改状态 |
+| §4.3 Reopen | ✅ 终态 → `open`，reason 必填，`critical` 仅人，历史/`duplicatedOf` 保留、`resolvedAt` 清空 |
+| §4.5 UI 主次分明 | ✅ 每状态一个 `dbr-primary`，其余收进次级区（终态主按钮=Reopen） |
+| §6 待拍板决策项 | ✅ 5 项已拍板见 spec §19 |
+
+> 落地过程中的设计判断（t03/t04 留痕）：Agent 回连是**建议**而非状态迁移；锚点 system-note 仅在线区间真变化时写入（抖动抑制），因此严格幂等需要额外的 `lastAnchorState` 字段，本期未加；`needs_review` 期间文档恢复可定位**不**自动退出，只由人工重绑触发。
+
+---
+
 ## 1. 状态机现状（按代码实测，非设计文档）
 
 ### 1.1 状态全集（10 个）

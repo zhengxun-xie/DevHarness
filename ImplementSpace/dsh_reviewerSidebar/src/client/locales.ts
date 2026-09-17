@@ -125,6 +125,7 @@ export type ReviewerKey =
   | 'transition.implementationBlocked'
   | 'transition.submitVerification'
   | 'transition.resolve'
+  | 'transition.reopen'
   | 'transition.failVerification'
   | 'transition.reason'
   | 'transition.reasonRequired'
@@ -273,6 +274,7 @@ const en: Record<ReviewerKey, string> = {
   'transition.implementationBlocked': 'Implementation blocked',
   'transition.submitVerification': 'Submit for verification',
   'transition.resolve': 'Resolve',
+  'transition.reopen': 'Reopen',
   'transition.failVerification': 'Fail verification',
   'transition.reason': 'Reason',
   'transition.reasonRequired': 'Reason is required',
@@ -422,6 +424,7 @@ const zh: Record<ReviewerKey, string> = {
   'transition.implementationBlocked': '实施受阻',
   'transition.submitVerification': '提交验证',
   'transition.resolve': '验收通过',
+  'transition.reopen': '重开',
   'transition.failVerification': '验收不通过',
   'transition.reason': '原因',
   'transition.reasonRequired': '请填写原因',

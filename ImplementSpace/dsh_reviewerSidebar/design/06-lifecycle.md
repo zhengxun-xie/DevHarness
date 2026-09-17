@@ -36,12 +36,16 @@ stateDiagram-v2
     verifying --> needs_review: 验证中发现锚点/上下文已实质变化
     verifying --> open: 撤回
 
+    rejected --> open: Reopen（reason 必填）
+    duplicated --> open: Reopen（reason 必填）
+    resolved --> open: Reopen（reason 必填）
+
     rejected --> [*]
     duplicated --> [*]
     resolved --> [*]
 ```
 
-终态：`resolved` / `rejected` / `duplicated`（Reopen 见 §2 约束与该状态终态表的后续说明）。
+终态：`resolved` / `rejected` / `duplicated`。每个终态只有一个出边——Reopen 回 `open`（§2）。
 
 ## 2. 迁移规则
 
@@ -59,14 +63,16 @@ stateDiagram-v2
 | verifying | implementing | 验收打回（FAILED），线程记录原因 |
 | verifying | needs_review | 验证中发现锚点已实质失效 |
 | 任意非终态 | open | 撤回/回退（不需要额外条件） |
+| resolved / rejected / duplicated | open | **Reopen**：`reason` 必填；`critical` 仅人；清 `resolvedAt`，保留 `decisions`/thread/`duplicatedOf` |
 
 约束：
 
 - 非法迁移返回 409，`error` 形如 `illegal transition: verifying -> accepted`；
 - 每次迁移在正文 `## Thread` 追加一条 `kind: status` 条目（含 `fromStatus/toStatus/时间/操作人/reason`）；
 - **讨论不改变状态**：追加评论/回复只写线程条目，`open` 不再自动跳到任何状态；
-- 终态记录不可追加普通评论（如要复活，走 Reopen 流程）；
-- `duplicated` 写入 `duplicated_of`，并在被指向 Review 的 related 中体现反向链接（列表层计算，不双向写文件）。
+- 终态记录不可追加普通评论；Reopen 回 `open` 后恢复可评论、可编辑（历史不丢）；
+- **`critical` 的两个动作仅人**：`verifying → resolved` 与终态 Reopen；host 校验调用方声明的 `author.type`，agent 触发直接 403（spec §9）；
+- `duplicated` 写入 `duplicated_of`，并在被指向 Review 的 related 中体现反向链接（列表层计算，不双向写文件）；Reopen 不清除该链接。
 
 ## 3. Anchor Status 与 Review Status 分离
 

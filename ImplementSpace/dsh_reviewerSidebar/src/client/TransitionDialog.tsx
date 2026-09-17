@@ -1,8 +1,9 @@
 /**
  * Modal collecting the extra fields certain transitions require
  * (design/06 §2): reject needs a reason, duplicate needs the original
- * review id, implemented→verifying carries evidence. Plain confirmations
- * (accept / needs_review / status back-edges) fire without this dialog.
+ * review id, implementing→verifying carries evidence, and Reopen
+ * (terminal → open) requires a reason. Plain confirmations (accept /
+ * needs_review / live-state back-edges) fire without this dialog.
  */
 import { useState } from 'react'
 import type { ReactNode } from 'react'
@@ -21,9 +22,10 @@ export interface TransitionDialogProps {
   to: ReviewStatus
   /**
    * Dialog kind. reject/duplicate carry a decision; verify collects
-   * evidence; failVerify (verifying → implementing) requires a reason.
+   * evidence; failVerify (verifying → implementing) requires a reason;
+   * reopen (terminal → open) requires a reason.
    */
-  kind: 'reject' | 'duplicate' | 'verify' | 'failVerify'
+  kind: 'reject' | 'duplicate' | 'verify' | 'failVerify' | 'reopen'
   /** Sibling reviews for the duplicate picker (excludes the current one). */
   candidates: ReviewSummary[]
   onConfirm: (request: TransitionRequest) => Promise<void>
@@ -36,6 +38,7 @@ export function TransitionDialog({ to, kind, candidates, onConfirm, onCancel, t 
   const isDuplicate = kind === 'duplicate'
   const isVerify = kind === 'verify'
   const isFail = kind === 'failVerify'
+  const isReopen = kind === 'reopen'
 
   const [reason, setReason] = useState('')
   const [duplicatedOf, setDuplicatedOf] = useState('')
@@ -45,7 +48,7 @@ export function TransitionDialog({ to, kind, candidates, onConfirm, onCancel, t 
   const [error, setError] = useState<string | null>(null)
 
   async function confirm(): Promise<void> {
-    if ((isReject || isFail) && reason.trim() === '') {
+    if ((isReject || isFail || isReopen) && reason.trim() === '') {
       setError(t('transition.reasonRequired'))
       return
     }
@@ -74,7 +77,9 @@ export function TransitionDialog({ to, kind, candidates, onConfirm, onCancel, t 
       ? 'transition.duplicate'
       : kind === 'failVerify'
         ? 'transition.failVerification'
-        : 'transition.submitVerification'
+        : kind === 'reopen'
+          ? 'transition.reopen'
+          : 'transition.submitVerification'
   const title = t(titleKey)
 
   return (
@@ -82,7 +87,7 @@ export function TransitionDialog({ to, kind, candidates, onConfirm, onCancel, t 
       <div className="dbr-dialog" onClick={event => event.stopPropagation()}>
         <h3>{title}</h3>
 
-        {(isReject || isFail) && (
+        {(isReject || isFail || isReopen) && (
           <div className="dbr-field">
             <label>{t('transition.reason')} *</label>
             <textarea value={reason} onChange={event => setReason(event.target.value)} autoFocus />

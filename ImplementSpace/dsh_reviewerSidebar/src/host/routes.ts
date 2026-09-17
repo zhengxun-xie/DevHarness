@@ -105,6 +105,7 @@ function statusForError(error: unknown): number {
     return (error as Error).name === 'NotFoundError' ? 404 : 400
   }
   if ((error as Error)?.name === 'ConflictError') return 409
+  if ((error as Error)?.name === 'ForbiddenError') return 403
   if (error instanceof IllegalTransitionError) return 409
   if ((error as Error)?.name === 'ValidationError') return 400
   return 400

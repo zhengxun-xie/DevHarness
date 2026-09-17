@@ -16,7 +16,9 @@ import {
   assertTransition,
   canTransition,
   decisionTypeFor,
+  isHumanOnlyTransition,
   isOpen,
+  isReopen,
   isTerminal,
 } from './lifecycle.ts'
 import type { ReviewStatus } from '../protocol.ts'
@@ -63,6 +65,10 @@ const LEGAL: Array<[ReviewStatus, ReviewStatus]> = [
   ['verifying', 'implementing'],
   ['verifying', 'needs_review'],
   ['verifying', 'open'],
+  // Reopen: every terminal state has exactly one edge back to open (spec §5.2).
+  ['resolved', 'open'],
+  ['rejected', 'open'],
+  ['duplicated', 'open'],
 ]
 
 test('every legal transition of the converged table is accepted', () => {
@@ -80,9 +86,12 @@ const ILLEGAL: Array<[ReviewStatus, ReviewStatus]> = [
   ['accepted', 'verifying'],
   ['needs_review', 'resolved'], // terminal is never restorable
   ['verifying', 'accepted'],
-  ['resolved', 'open'], // Reopen: lands with its own ticket — not legal yet.
+  // Reopen is the ONLY edge out of a terminal state.
+  ['resolved', 'accepted'],
   ['resolved', 'implementing'],
-  ['rejected', 'open'],
+  ['resolved', 'verifying'],
+  ['resolved', 'needs_review'],
+  ['rejected', 'accepted'],
   ['duplicated', 'accepted'],
 ]
 
@@ -101,6 +110,37 @@ test('every illegal transition is rejected with the error fields populated', () 
       },
     )
   }
+})
+
+test('isReopen identifies exactly the terminal -> open edge', () => {
+  for (const status of STATUSES) {
+    const expected = (TERMINAL_STATUSES as readonly string[]).includes(status)
+    assert.equal(isReopen({ from: status, to: 'open' }), expected, `reopen from ${status}`)
+    assert.equal(isReopen({ from: status, to: 'accepted' }), false, `not reopen from ${status}`)
+  }
+})
+
+test('isHumanOnlyTransition reserves critical resolve and reopen to a human', () => {
+  // Non-critical: nothing is reserved.
+  for (const from of STATUSES) {
+    for (const to of ['resolved', 'open', 'accepted'] as ReviewStatus[]) {
+      assert.equal(
+        isHumanOnlyTransition({ from, to, severity: 'major' }),
+        false,
+        `${from} -> ${to} for a non-critical review`,
+      )
+    }
+  }
+  // Critical: final acceptance and Reopen are human-only.
+  assert.equal(isHumanOnlyTransition({ from: 'verifying', to: 'resolved', severity: 'critical' }), true)
+  for (const from of TERMINAL_STATUSES) {
+    assert.equal(isHumanOnlyTransition({ from, to: 'open', severity: 'critical' }), true, `reopen from ${from}`)
+  }
+  // Critical but not a reserved move: an ordinary rollback stays open to agents
+  // in the same sense the old table was — only resolve/reopen are fenced.
+  assert.equal(isHumanOnlyTransition({ from: 'verifying', to: 'open', severity: 'critical' }), false)
+  assert.equal(isHumanOnlyTransition({ from: 'accepted', to: 'open', severity: 'critical' }), false)
+  assert.equal(isHumanOnlyTransition({ from: 'verifying', to: 'implementing', severity: 'critical' }), false)
 })
 
 test('decisionTypeFor maps only decision-bearing targets', () => {

@@ -32,6 +32,8 @@ import { scanReviewCommits } from './git-read.ts'
 import {
   assertTransition,
   decisionTypeFor,
+  isHumanOnlyTransition,
+  isReopen,
   isTerminal,
 } from './lifecycle.ts'
 import { REVIEW_TYPES, SEVERITIES } from '../protocol.ts'
@@ -109,6 +111,14 @@ export class ConflictError extends Error {
   }
 }
 
+/** The caller is authenticated but not allowed to do this (spec §5.2/§9). */
+export class ForbiddenError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ForbiddenError'
+  }
+}
+
 function nowIso(): string {
   return new Date().toISOString()
 }
@@ -119,6 +129,16 @@ function emptyRelated(): ReviewRecord['related'] {
 
 /** Default human actor for transitions the reviewer triggers locally. */
 const REVIEWER_AUTHOR: AuthorRef = { type: 'user', id: 'reviewer' }
+
+/**
+ * Who is asking for a transition: a caller that declares an agent actor is
+ * honoured (so the critical human-only gate above can refuse it); anything else
+ * is the human reviewer, which is the whole model here (spec §5.2: single-user,
+ * no account system).
+ */
+function resolveActor(author: AuthorRef | undefined): AuthorRef {
+  return author !== undefined && author.type === 'agent' ? author : REVIEWER_AUTHOR
+}
 
 /** Next stable ENTRY-#### by max+1 over the whole thread (never positional). */
 function nextEntryId(entries: ThreadEntry[]): string {
@@ -503,6 +523,19 @@ export class ReviewStore {
     const to = input.to
     assertTransition(from, to)
 
+    // Human-only transitions (spec §5.2/§9): a critical review's final
+    // acceptance and its Reopen are reserved to a human. The actor is declared
+    // by the caller; an agent that declares itself is refused outright.
+    const actor = resolveActor(input.author)
+    if (actor.type === 'agent'
+      && isHumanOnlyTransition({ from, to, severity: parsed.record.severity })) {
+      throw new ForbiddenError(
+        to === 'resolved'
+          ? 'only a human can resolve a critical review'
+          : 'only a human can reopen a critical review',
+      )
+    }
+
     // A human driving the workflow keeps / dismisses a pending agent
     // completion suggestion (spec §9): the next human transition clears it.
     parsed.record.agentCompletion = null
@@ -510,6 +543,11 @@ export class ReviewStore {
     // Conditional transitions (06 §2).
     if (to === 'rejected' && (input.reason ?? '').trim() === '') {
       throw new ValidationError('reason is required when rejecting a review')
+    }
+    // Reopen (spec §5.2): coming back from a terminal state is an explicit,
+    // reasoned act — a plain rollback from a live state needs no reason.
+    if (isReopen({ from, to }) && (input.reason ?? '').trim() === '') {
+      throw new ValidationError('reason is required when reopening a review')
     }
     if (to === 'duplicated') {
       if ((input.duplicatedOf ?? '').trim() === '') {
@@ -527,7 +565,7 @@ export class ReviewStore {
     const threadBody = (input.reason ?? input.decisionSummary ?? '').trim()
     this.pushEntry(parsed.record, {
       at,
-      author: REVIEWER_AUTHOR,
+      author: actor,
       kind: 'status',
       body: threadBody,
       fromStatus: from,
@@ -539,14 +577,14 @@ export class ReviewStore {
         id: nextDecisionId(parsed.record),
         type: decisionKind,
         summary,
-        decidedBy: REVIEWER_AUTHOR,
+        decidedBy: actor,
         decidedAt: at,
       }
       parsed.record.decision = decision
       parsed.record.decisions.push(decision)
       this.pushEntry(parsed.record, {
         at,
-        author: REVIEWER_AUTHOR,
+        author: actor,
         kind: 'decision',
         body: summary,
         decisionType: decisionKind,
@@ -557,6 +595,9 @@ export class ReviewStore {
     parsed.record.thread.status = to
     parsed.record.updatedAt = at
     if (to === 'resolved') parsed.record.resolvedAt = at
+    // Reopen clears the terminal timestamp; decisions, thread and
+    // duplicatedOf all survive (spec §5.2).
+    if (isReopen({ from, to })) parsed.record.resolvedAt = null
     // Evidence chain (design/06 §8): backfill commit trailers when the review
     // is entering a verification-bearing state. Best effort — never blocks.
     if (to === 'implementing' || to === 'verifying' || to === 'resolved' || to === 'accepted') {

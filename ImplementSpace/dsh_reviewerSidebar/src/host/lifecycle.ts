@@ -13,20 +13,37 @@
  * All legal transitions are declared here; illegal transitions throw
  * IllegalTransitionError which routes map to HTTP 409.
  */
-import type { ReviewDecision, ReviewStatus } from '../protocol.ts'
 
-export {
-  STATUSES,
-  OPEN_STATUSES,
-  TERMINAL_STATUSES,
-  TERMINAL_STATUS_SET,
-  STORED_STATUSES,
+import {
   DECISION_TYPES,
   LEGACY_STATUS_MAP,
-  normalizeStatus,
+  OPEN_STATUSES,
+  STATUSES,
+  STORED_STATUSES,
+  TERMINAL_STATUSES,
+  TERMINAL_STATUS_SET,
   isOpen,
   isTerminal,
+  normalizeStatus,
+  type ReviewDecision,
+  type ReviewStatus,
+  type Severity,
 } from '../protocol.ts'
+
+// Single import surface for host callers: the status sets live in protocol.ts
+// (shared with the client) and are re-exported here unchanged.
+export {
+  DECISION_TYPES,
+  LEGACY_STATUS_MAP,
+  OPEN_STATUSES,
+  STATUSES,
+  STORED_STATUSES,
+  TERMINAL_STATUSES,
+  TERMINAL_STATUS_SET,
+  isOpen,
+  isTerminal,
+  normalizeStatus,
+}
 
 export class IllegalTransitionError extends Error {
   readonly from: ReviewStatus
@@ -55,11 +72,32 @@ const ALLOWED: Allowed = {
   // accepted covers implementation blocked / approach changed.
   implementing: ['verifying', 'accepted', 'open'],
   verifying: ['resolved', 'implementing', 'needs_review', 'open'],
-  // Terminal states: no outgoing transitions yet (Reopen arrives with the
-  // reopen ticket, which owns the reason-required + critical-only-human rules).
-  resolved: [],
-  rejected: [],
-  duplicated: [],
+  // Terminal states expose exactly one edge: Reopen (spec §5.2). A reopened
+  // review is an ordinary `open` review again — history, decisions and
+  // duplicatedOf all survive; only `resolvedAt` is cleared.
+  resolved: ['open'],
+  rejected: ['open'],
+  duplicated: ['open'],
+}
+
+/**
+ * Transitions a `critical` review reserves to a human (spec §5.2, §9): final
+ * acceptance and Reopen. Pure so both the host gate and the tests read the
+ * same rule.
+ */
+export function isHumanOnlyTransition(input: {
+  from: ReviewStatus
+  to: ReviewStatus
+  severity: Severity
+}): boolean {
+  if (input.severity !== 'critical') return false
+  if (input.to === 'resolved') return true
+  return input.to === 'open' && isTerminal(input.from)
+}
+
+/** True when this transition is a Reopen (terminal -> open, spec §5.2). */
+export function isReopen(input: { from: ReviewStatus; to: ReviewStatus }): boolean {
+  return input.to === 'open' && isTerminal(input.from)
 }
 
 export function canTransition(from: ReviewStatus, to: ReviewStatus): boolean {

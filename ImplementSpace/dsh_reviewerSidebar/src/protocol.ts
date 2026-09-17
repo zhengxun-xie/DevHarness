@@ -483,6 +483,12 @@ export interface TransitionRequest {
   decisionSummary?: string
   evidence?: string
   expectedSha?: string | null
+  /**
+   * Who is asking. Absent means the human reviewer (the panel). An agent must
+   * declare itself so the host can enforce the human-only rules for critical
+   * reviews (spec §5/§9); agents never decide, and never resolve or reopen.
+   */
+  author?: AuthorRef
 }
 
 export interface TransitionResponse {

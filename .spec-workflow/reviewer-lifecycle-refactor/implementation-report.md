@@ -116,3 +116,30 @@
 
 **Commit**：见下条记录。
 
+## Ticket 05 — Reopen + UI 主次分明 ✅
+
+**改动**：
+- `src/host/lifecycle.ts`：终态 `resolved`/`rejected`/`duplicated` 各放开且仅放开 `→ open` 一条出边（Reopen）；新增纯函数 `isReopen({from,to})`（终态→open）与 `isHumanOnlyTransition({from,to,severity})`（critical 的 `→ resolved` 与终态 Reopen 保留给人）；`protocol.ts` 的导入/再导出合并为单一 import surface。
+- `src/protocol.ts`：`TransitionRequest` 新增可选 `author?: AuthorRef`（调用方声明身份，缺席即人）。
+- `src/host/review-store.ts`：新增 `ForbiddenError`（403）；`transitionReview` 在 `assertTransition` 后执行两道门禁——agent 身份 + human-only 规则 → 拒绝（resolve 与 reopen 各自的文案）、终态 Reopen 需 `reason` 非空（活态 → open 回退不需要）；`resolveActor()` 把身份落到状态/决策条目上；`isReopen` 时清 `resolvedAt`。Reopen 不触发 commit-trailer 回填（`to='open'` 不在回填集合），历史不丢。
+- `src/host/routes.ts`：`statusForError` 加 `ForbiddenError → 403`（其余不变：409 illegal/conflict、400 validation）。
+- `src/client/TransitionDialog.tsx`：新增 `reopen` kind（reason 必填，标题用 `transition.reopen`）。
+- `src/client/ReviewDetail.tsx`：动作模型重为主/次两层——每状态一个 `dbr-primary`（`PRIMARY_ACTION`：`open`=采纳、`implementing`=声明完成、`verifying`=验收通过、三终态=Reopen；`accepted` 提升 Send to Agent、`needs_review` 主操作=重绑导航）；其余合法出边收进次级区（`SECONDARY_ACTIONS`，全量保留不出死角）；`implementing` 有 Agent 回连待验收时主按钮文案切为「确认 Agent 完成」；`open` 的 Send 保持次级。
+- `src/client/locales.ts`：`transition.reopen`（en/zh）。
+- 文档：`design/06-lifecycle.md` —— mermaid 补三条终态 Reopen 边、迁移表加 Reopen 行、约束补「critical 仅人 403」「Reopen 保留历史/duplicatedOf、清 resolvedAt」；`design/06b-lifecycle-current-analysis.md` —— 归档标注 §0 落地对照表（含 t03/t04 设计判断留痕）。
+- 测试：`lifecycle.test.ts` 终态→open 由非法改合法 + 补「仅 `→open` 一条出边」全矩阵 + `isReopen`/`isHumanOnlyTransition` 全矩阵；新增 **`review-store.reopen.test.ts`（store 级，临时 DSH_HOME + 临时项目，动态 import）**——三终态 Reopen 需 reason、历史/duplicatedOf 保留、`resolvedAt` 清空、Reopen 后可写、活态回退不算 Reopen、critical resolve/reopen 被 agent 拒绝而人可、非 critical 不受限、Reopen 后可再走完流程。
+- `package.json`：`test` 脚本追加新测试文件（Node `--test` 用显式文件列表）。
+
+**自验**：
+- `pnpm typecheck` ✅
+- `pnpm test` **39/39** ✅（含 8 条 store 级 Reopen 用例）
+- `pnpm build`（host ESM + client CJS，两产物均重建）✅
+
+**设计判读（需你过目）**：
+1. **「仅人」的权威依据是调用方声明的 `TransitionRequest.author.type`**：spec §9/§13 明示「仍单机模型、`author=reviewer`、无账号体系」，所以这是**声明制门禁**而非鉴权——主机面板（同一 loopback 内）技术上可伪造。它拦的是「Agent 侧默认路径误触」，不是恶意越权；若将来真要给 Agent 独立的认证身份，这里要换成真鉴权。
+2. **Open 的 Send to Agent 保持次级**：refactor §9.1 的 accepted 主按钮即 Send；`open` 的主按钮沿用「采纳」，Send 作为次级并列于 Reject/Duplicate，避免 open 出两个主按钮。
+3. `ReviewList` 分组（`verify` 含 `needs_review`、`closed` 用单一来源 `TERMINAL_STATUSES`）此前已对齐 spec §8，本 ticket 未再改。
+
+**Commit**：见下条记录。
+
+
