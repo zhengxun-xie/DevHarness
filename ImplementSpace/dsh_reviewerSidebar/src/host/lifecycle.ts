@@ -67,10 +67,10 @@ const ALLOWED: Allowed = {
   // ticket's auto-exit restoring the pre-entry state (design/06 §12); the UI
   // only exposes rebind / reject / duplicate there.
   needs_review: ['open', 'accepted', 'implementing', 'verifying', 'rejected', 'duplicated'],
-  accepted: ['implementing', 'open'],
+  accepted: ['implementing', 'open', 'needs_review'],
   // "Declared done" lands directly in verifying (no `implemented` stopover);
   // accepted covers implementation blocked / approach changed.
-  implementing: ['verifying', 'accepted', 'open'],
+  implementing: ['verifying', 'accepted', 'open', 'needs_review'],
   verifying: ['resolved', 'implementing', 'needs_review', 'open'],
   // Terminal states expose exactly one edge: Reopen (spec §5.2). A reopened
   // review is an ordinary `open` review again — history, decisions and

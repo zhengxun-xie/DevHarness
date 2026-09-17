@@ -549,6 +549,11 @@ export class ReviewStore {
     if (isReopen({ from, to }) && (input.reason ?? '').trim() === '') {
       throw new ValidationError('reason is required when reopening a review')
     }
+    // Failing verification (spec §5.2) must record why: the UI dialog requires
+    // it, and the host enforces the same rule for every other caller.
+    if (from === 'verifying' && to === 'implementing' && (input.reason ?? '').trim() === '') {
+      throw new ValidationError('reason is required when failing verification')
+    }
     if (to === 'duplicated') {
       if ((input.duplicatedOf ?? '').trim() === '') {
         throw new ValidationError('duplicatedOf is required when marking duplicated')
@@ -1017,23 +1022,38 @@ export class ReviewStore {
     if (fresh.sha !== parsed.sha) return { record, resolution }
 
     const at = nowIso()
+    // Mutate a copy: this runs inside read paths, so a failed triage write must
+    // never hand the caller a half-triaged record. On any failure we return the
+    // record exactly as read (spec §12/§16: skip silently, retry next read).
+    const triaged: ReviewRecord = {
+      ...record,
+      target: { ...record.target, positional: { ...record.target.positional } },
+      thread: { ...record.thread, entries: [...record.thread.entries] },
+    }
     if (decision.action === 'auto-needs-review') {
-      assertTransition(record.status, 'needs_review')
-      this.pushEntry(record, {
+      // Every non-terminal state must be able to reach needs_review (spec
+      // §5.2); if the table ever disagrees, degrade instead of throwing out of
+      // a read path.
+      try {
+        assertTransition(triaged.status, 'needs_review')
+      } catch {
+        return { record, resolution }
+      }
+      this.pushEntry(triaged, {
         at,
         author: REVIEWER_AUTHOR,
         kind: 'status',
         body: decision.note,
-        fromStatus: record.status,
+        fromStatus: triaged.status,
         toStatus: 'needs_review',
       })
-      record.status = 'needs_review'
-      record.thread.status = 'needs_review'
+      triaged.status = 'needs_review'
+      triaged.thread.status = 'needs_review'
     } else {
       // Position follow: adopt the fresh line range. Fuzzy matches report no
       // offsets, so stale offsets from the old text are dropped rather than
       // lying about the match.
-      record.target.positional = {
+      triaged.target.positional = {
         lineStart: resolution.lineStart as number,
         lineEnd: resolution.lineEnd as number,
         ...(resolution.matchOffsetStart !== null && resolution.matchOffsetEnd !== null
@@ -1041,7 +1061,7 @@ export class ReviewStore {
           : {}),
       }
       if (decision.action === 'system-note') {
-        this.pushEntry(record, {
+        this.pushEntry(triaged, {
           at,
           author: REVIEWER_AUTHOR,
           kind: 'system',
@@ -1049,13 +1069,19 @@ export class ReviewStore {
         })
       }
     }
-    record.updatedAt = at
-    this.writeWithSlug(project.path, record, parsed.extra)
+    triaged.updatedAt = at
+    try {
+      this.writeWithSlug(project.path, triaged, parsed.extra)
+    } catch {
+      // Concurrent writer, read-only tree, or any other write failure: leave
+      // the review as read and let the next read retry the same triage.
+      return { record, resolution }
+    }
     this.scheduleIndexRebuild(project)
     // The triage just rewrote the anchor; re-resolve so callers see the
     // resolution that matches the persisted state (usually settles to valid).
-    const doc = readDocument(project.path, record.document)
-    return { record, resolution: resolveAnchor(record.target, doc.content) }
+    const doc = readDocument(project.path, triaged.document)
+    return { record: triaged, resolution: resolveAnchor(triaged.target, doc.content) }
   }
 
   /**

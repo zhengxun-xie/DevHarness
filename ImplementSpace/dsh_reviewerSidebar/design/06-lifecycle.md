@@ -19,6 +19,8 @@ stateDiagram-v2
     open --> rejected: Reject（reason + Decision）
     open --> duplicated: 标记重复(duplicatedOf + Decision)
     open --> needs_review: 锚点 orphaned（系统自动，唯一自动状态变更）
+    accepted --> needs_review: 同上（锚点 orphaned）
+    implementing --> needs_review: 同上（锚点 orphaned）
 
     needs_review --> open: 人工重绑锚点后自动退回进入前状态
     needs_review --> rejected: 不再成立
@@ -54,14 +56,13 @@ stateDiagram-v2
 | open | accepted | 生成 `decision: accept`（见 03 §6） |
 | open | rejected | `reason` 非空 + `decision: reject` |
 | open | duplicated | `duplicatedOf` 指向存在 Review + `decision: duplicate` |
-| open | needs_review | 锚点解析为 `orphaned`，系统自动写入（§3） |
+| open / accepted / implementing / verifying | needs_review | 锚点解析为 `orphaned`，系统自动写入（§3） |
 | needs_review | 进入前的原状态 | 人工重绑锚点后自动退回（§3） |
 | needs_review | rejected/duplicated | 人确认不再成立 |
 | accepted | implementing | 经过 Send to Agent，或手动标记开始 |
 | implementing | verifying | 声明完成 + 验证证据（测试路径 / Diff 摘要）；Agent 回连可一键确认 |
 | verifying | resolved | 人工确认验收（终态判定权始终在人，Agent 不可） |
-| verifying | implementing | 验收打回（FAILED），线程记录原因 |
-| verifying | needs_review | 验证中发现锚点已实质失效 |
+| verifying | implementing | 验收打回（FAILED），`reason` 必填（host 侧校验，400），线程记录原因 |
 | 任意非终态 | open | 撤回/回退（不需要额外条件） |
 | resolved / rejected / duplicated | open | **Reopen**：`reason` 必填；`critical` 仅人；清 `resolvedAt`，保留 `decisions`/thread/`duplicatedOf` |
 
@@ -143,8 +144,8 @@ M1 不引入账号体系，`author` 为本地固定标识（`reviewer`），状�
 
 ## 7. 通知与列表
 
-- 左栏节点 / 项目 tab 展示未关闭计数（open + discussing + needs_review + accepted + implementing + implemented + verifying）；
-- 右栏列表默认筛选「未关闭」，提供视图：Open / In progress（accepted+implementing）/ Verify（implemented+verifying）/ Closed；
+- 左栏节点 / 项目 tab 展示未关闭计数（8 态中除终态外的全部：open + needs_review + accepted + implementing + verifying）；
+- 右栏列表默认筛选「未关闭」，提供视图：Open（open）/ In progress（accepted+implementing）/ Verify（verifying+needs_review）/ Closed（resolved+rejected+duplicated）；
 - 支持按 `type` 与 `severity` 组合筛选；
 - critical 且未关闭的 Review 在项目头部常驻警示条；
 - 跨栏变化通过 `DEVBUDDY_REVIEW_CHANGED` postMessage 与 `visibilitychange` 刷新，无长连接。

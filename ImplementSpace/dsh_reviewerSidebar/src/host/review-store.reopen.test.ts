@@ -240,3 +240,95 @@ test('reopen then re-resolve walks the whole chain again', async () => {
   // Two accept decisions now: the original and the post-reopen one.
   assert.equal(after.decisions.filter(d => d.type === 'accept').length, 2)
 })
+
+// ---------------------------------------------------------------------------
+// Repair pass 01 (DR-001 / DR-002): anchor auto-triage from accepted and
+// implementing, and the host-side reason requirement for failing verification.
+// ---------------------------------------------------------------------------
+
+/** Rewrite the document so the anchored text no longer exists. */
+function orphanAnchor(): void {
+  writeFileSync(join(projectPath, 'doc.md'), '# Other\n\ncompletely different text\n')
+}
+
+/** Re-bind the anchor onto the rewritten document. */
+async function rebind(reviewId: string): Promise<void> {
+  writeFileSync(join(projectPath, 'doc.md'), '# Other\n\nnew anchor text here\n\nmore\n')
+  const fresh: ReviewAnchorDraft = {
+    structural: { section: 'Other', headingPath: ['Other'] },
+    textual: { selectedText: 'new anchor text here', prefix: '', suffix: '' },
+    positional: { lineStart: 3, lineEnd: 3 },
+  }
+  await store.reanchorReview({ projectId: PROJECT_ID, reviewId, target: fresh })
+}
+
+test('DR-001: orphaned anchor auto-enters needs_review from accepted and implementing', async () => {
+  for (const target of ['accepted', 'implementing'] as const) {
+    freshProject()
+    const reviewId = await newReview()
+    await step(reviewId, 'accepted')
+    if (target === 'implementing') await step(reviewId, 'implementing')
+
+    orphanAnchor()
+    const review = read(reviewId)
+    assert.equal(review.status, 'needs_review', `${target} must auto-enter needs_review`)
+    const last = review.thread.entries.at(-1)
+    assert.equal(last?.kind, 'status')
+    assert.equal(last?.fromStatus, target)
+    assert.equal(last?.toStatus, 'needs_review')
+  }
+})
+
+test('DR-001: reanchoring restores the status held before needs_review', async () => {
+  for (const target of ['accepted', 'implementing'] as const) {
+    freshProject()
+    const reviewId = await newReview()
+    await step(reviewId, 'accepted')
+    if (target === 'implementing') await step(reviewId, 'implementing')
+
+    orphanAnchor()
+    assert.equal(read(reviewId).status, 'needs_review')
+
+    await rebind(reviewId)
+    assert.equal(read(reviewId).status, target, `rebind restores ${target}`)
+  }
+})
+
+test('DR-001: a triage write failure degrades to no-triage instead of breaking the read', async () => {
+  freshProject()
+  const reviewId = await newReview()
+  await step(reviewId, 'accepted')
+  orphanAnchor()
+  // First read performs the triage write; a second read must be a clean no-op
+  // (no double status entry, no throw).
+  assert.equal(read(reviewId).status, 'needs_review')
+  const again = read(reviewId)
+  assert.equal(again.status, 'needs_review')
+  const statusEntries = again.thread.entries.filter(e => e.kind === 'status' && e.toStatus === 'needs_review')
+  assert.equal(statusEntries.length, 1, 'triage writes exactly once')
+})
+
+test('DR-002: failing verification without a reason is refused by the host', async () => {
+  freshProject()
+  const reviewId = await newReview()
+  await step(reviewId, 'accepted')
+  await step(reviewId, 'implementing')
+  await step(reviewId, 'verifying')
+
+  await assert.rejects(
+    step(reviewId, 'implementing'),
+    (error: unknown) => {
+      assert.ok(error instanceof ValidationError, 'reasonless fail must be refused')
+      assert.match((error as Error).message, /failing verification/)
+      return true
+    },
+  )
+  assert.equal(read(reviewId).status, 'verifying', 'refused transition must not half-apply')
+
+  await step(reviewId, 'implementing', { reason: 'tests missing' })
+  const review = read(reviewId)
+  assert.equal(review.status, 'implementing')
+  const last = review.thread.entries.at(-1)
+  assert.equal(last?.kind, 'status')
+  assert.equal(last?.body, 'tests missing', 'the reason lands on the status entry')
+})

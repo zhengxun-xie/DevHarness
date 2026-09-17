@@ -143,3 +143,39 @@
 **Commit**：见下条记录。
 
 
+---
+
+# 附录：Goal Mode 运行态账本（评审阶段维护）
+
+| 字段 | 值 |
+| --- | --- |
+| 授权来源 | `spec.md` Goal Mode 元数据（enabled for this spec only，user-confirmed 2025-09-17，max 修复轮 2，不自动提交） |
+| 当前实现阶段 | t01–t05 全部完成并提交（`1da2b2b` / `d205a17` / `3c75be1` / `304f38d` / `8f900d1`） |
+| 验证状态（当轮） | 终审基线：typecheck ✅ / 39 单测 ✅ / 产物重建 ✅ / 独立验证 12 用例（10 通过 2 失败=DR-001 复现）→ **修复后**：typecheck ✅ / **43 单测全绿** ✅ / 产物重建 ✅ / 复现脚本 **12/12** ✅ |
+| 已完成修复轮 | 0（第 1 轮待修复后 do-review 复核后记完成） |
+| 预留修复轮 | **第 1 轮**（由 do-review pass 01 预留；已由 spec-do 实现完成） |
+| 剩余修复预算 | 1（总 2；第 1 轮复核通过后扣为 0） |
+| 评审报告 | `review-report.md`、`review-reports/01-lifecycle-refactor-first-pass.md` |
+| 实现（修复）报告 | `implementation-reports/01-repair-dr-001-dr-002.md` |
+| 下一自动阶段 | **`do-review`（复核修复）** |
+| 暂停原因 | 无 |
+
+## Repair Pass 01 — DR-001 / DR-002 修复 ✅（实现完成，待 do-review 复核）
+
+**依据**：`repair-spec.md`、`repair-specs/01-dr-001-dr-002-anchor-triage-and-reason.md`、`repair-issues/01`（DR-001 blocker）、`repair-issues/02`（DR-002 major）
+**fixed point**：`8f900d1`
+
+**改动**：
+- `src/host/lifecycle.ts`：`ALLOWED.accepted` / `ALLOWED.implementing` 各补 `needs_review`（spec §5.2「open/accepted/implementing/verifying → needs_review」）。
+- `src/host/review-store.ts`：
+  - `applyAnchorTriage()`：triage 变更改在**记录副本**上做；`assertTransition` / `writeWithSlug` 失败即返回**原记录**（本次不分流、读路径不抛错、下次读重试）。修复了「accepted/implementing + orphaned 时详情与文档视图双抛 409」。
+  - `transitionReview()`：`verifying → implementing` 补 reason 必填（400 `reason is required when failing verification`），与 reject/Reopen 同款式；客户端弹窗必填保留为双层校验。
+- 测试：`lifecycle.test.ts` 合法矩阵 +2；`review-store.reopen.test.ts` +4（accepted/implementing 自动进入、重绑退回原状态、triage 幂等、host reason 断言）。
+- 文档：`design/06-lifecycle.md` §1 mermaid 补两条 needs_review 边、§2 表合并为「open/accepted/implementing/verifying」一行、`verifying→implementing` 标 host 侧 reason 必填、§7 修正遗留旧状态名与视图分组。
+- 证据脚本：`verification/dr-001-repro.test.ts` 两条负向「记录旧缺陷」用例改写为修复后预期。
+
+**自验**：`pnpm typecheck` ✅ / `pnpm test` **43/43** ✅ / `pnpm build` ✅ / `verification/dr-001-repro.test.ts` **12/12** ✅（修复前 10/12）
+
+**剩余风险**：前端真实浏览器交互仍未验证；triage 静默降级使未来「缺边类」故障只能靠测试矩阵（4 个非终态全覆盖）暴露。
+
+**Commit**：见下条记录。
