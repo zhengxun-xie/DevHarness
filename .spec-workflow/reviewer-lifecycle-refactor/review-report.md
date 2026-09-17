@@ -10,7 +10,7 @@
 - 实现来源：`implementation-report.md`（t01–t05 记录）
 - 评审 diff：`9354d24...HEAD`（`1da2b2b` t01、`d205a17` t02、`3c75be1` t03、`304f38d` t04、`8f900d1` t05），`ImplementSpace/dsh_reviewerSidebar` 子树 28 文件 +2068/−296
 - 评审基线：工作树干净（`git status --short` 无生产文件改动）；`t05` 提交后进入终审
-- 最新 pass：`review-reports/01-lifecycle-refactor-first-pass.md`
+- 最新 pass：`review-reports/02-repair-follow-up.md`（第一轮：`review-reports/01-lifecycle-refactor-first-pass.md`）
 
 ## 评审范围
 
@@ -25,15 +25,15 @@
 ## Goal Mode 状态
 
 - 本 spec Goal Mode **启用**；目标：实现全部 ticket → typecheck + 单测通过 → `do-review` 无 must-fix → 可交付。
-- 当前：**目标未满足**（存在 must-fix）。
-- 修复预算：上限 2 轮；本轮**预留第 1 轮**（`implementation-report.md` 运行态）；下一自动阶段：`fix-review`。
-- 未触发暂停条件（无需业务决策缺口、未超范围、未要求接受风险）。
+- 当前：**目标已满足**（详见 pass 02）。
+- 修复预算：上限 2 轮；**第 1 轮已用并完成**（实现 + 复核通过）；剩余预算 **1（未使用）**；自动循环停止。
 
 ## 结果
 
-- Completion: **mostly complete**
-- Ship Decision: **fix before ship**
-- must-fix：2 条（DR-001 blocker、DR-002 major）
-- 其余：minor 2 条、nit 1 条、残余风险 3 条
+- Completion: **complete**（repass pass 01 的 must-fix 均已关闭，见 pass 02）
+- Ship Decision: **can ship**
+- must-fix：**0**（DR-001、DR-002 已由 repair pass 01 修复通过复核）
+- 延后项（非阻塞）：DR-003（spec §12 文案对齐）、DR-004（`REMOVABLE` 提 `protocol.ts`）、DR-005（注释可达性）
+- 残余风险：前端真实浏览器交互未验证、插件运行时未重启冒烟（见 pass 02 §5）
 
-详见 `review-reports/01-lifecycle-refactor-first-pass.md`。
+详见 `review-reports/02-repair-follow-up.md`（及第一轮 `review-reports/01-lifecycle-refactor-first-pass.md`）。

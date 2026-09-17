@@ -152,12 +152,12 @@
 | 授权来源 | `spec.md` Goal Mode 元数据（enabled for this spec only，user-confirmed 2025-09-17，max 修复轮 2，不自动提交） |
 | 当前实现阶段 | t01–t05 全部完成并提交（`1da2b2b` / `d205a17` / `3c75be1` / `304f38d` / `8f900d1`） |
 | 验证状态（当轮） | 终审基线：typecheck ✅ / 39 单测 ✅ / 产物重建 ✅ / 独立验证 12 用例（10 通过 2 失败=DR-001 复现）→ **修复后**：typecheck ✅ / **43 单测全绿** ✅ / 产物重建 ✅ / 复现脚本 **12/12** ✅ |
-| 已完成修复轮 | 0（第 1 轮待修复后 do-review 复核后记完成） |
-| 预留修复轮 | **第 1 轮**（由 do-review pass 01 预留；已由 spec-do 实现完成） |
-| 剩余修复预算 | 1（总 2；第 1 轮复核通过后扣为 0） |
-| 评审报告 | `review-report.md`、`review-reports/01-lifecycle-refactor-first-pass.md` |
+| 已完成修复轮 | **1**（第 1 轮：实现完成 + do-review 复核通过） |
+| 预留修复轮 | 无（第 1 轮预留已结清） |
+| 剩余修复预算 | **1**（总 2，第 1 轮已扣减一次，未启用下一轮） |
+| 评审报告 | `review-report.md`、`review-reports/01-lifecycle-refactor-first-pass.md`、`review-reports/02-repair-follow-up.md` |
 | 实现（修复）报告 | `implementation-reports/01-repair-dr-001-dr-002.md` |
-| 下一自动阶段 | **`do-review`（复核修复）** |
+| 下一自动阶段 | **无（目标达成，自动循环停止）** — do-review 复核：无 must-fix、Ship Decision `can ship` |
 | 暂停原因 | 无 |
 
 ## Repair Pass 01 — DR-001 / DR-002 修复 ✅（实现完成，待 do-review 复核）
