@@ -33,7 +33,8 @@
   "scripts": {
     "build": "tsdown",
     "watch": "tsdown --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test src/host/lifecycle.test.ts src/host/review-files.test.ts"
   },
   "files": [
     "lib/**/*.js",

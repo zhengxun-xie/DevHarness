@@ -259,7 +259,7 @@ function formatThread(thread: ThreadEntry[]): string {
         return `- [${entry.at} / ${who}] status ${entry.fromStatus} -> ${entry.toStatus} ${entry.body}`.trim()
       }
       if (entry.kind === 'decision') {
-        return `- [${entry.at} / ${who}] decision ${entry.decisionType ?? 'defer'}: ${entry.body}`
+        return `- [${entry.at} / ${who}] decision ${entry.decisionType ?? 'unspecified'}: ${entry.body}`
       }
       const reply = entry.replyTo !== undefined ? ` (reply ${entry.replyTo})` : ''
       return `- [${entry.at} / ${who}]${reply} ${entry.body}`
@@ -276,7 +276,7 @@ function digestThread(thread: ThreadEntry[]): string {
   const points = thread.filter(entry => entry.kind === 'comment' || entry.kind === 'decision')
   if (points.length === 0) return '(none)'
   const lines = points.map((entry) => {
-    const tag = entry.kind === 'decision' ? `decision:${entry.decisionType ?? 'defer'}` : 'note'
+    const tag = entry.kind === 'decision' ? `decision:${entry.decisionType ?? 'unspecified'}` : 'note'
     const body = entry.body.replace(/\s+/g, ' ').trim()
     return `- ${tag} ${body.slice(0, 120)}`
   })

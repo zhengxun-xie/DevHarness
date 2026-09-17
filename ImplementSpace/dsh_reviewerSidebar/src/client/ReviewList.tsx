@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { DocTreeNode, ReviewSummary } from '../protocol.ts'
+import { TERMINAL_STATUSES } from '../protocol.ts'
 import type { TranslateFunction } from './format.ts'
 import { formatTime, severityClass, severityLabel, statusLabel } from './format.ts'
 
@@ -21,7 +22,8 @@ const VIEW_STATUS: Record<Exclude<ListViewKey, 'all'>, string[]> = {
   open: ['open', 'discussing', 'needs_review'],
   inProgress: ['accepted', 'implementing'],
   verify: ['implemented', 'verifying'],
-  closed: ['resolved', 'rejected', 'duplicated'],
+  // Terminal membership comes from the single source in protocol.ts (design/06b E1).
+  closed: [...TERMINAL_STATUSES],
 }
 
 export const VIEW_TAB_KEYS: Record<ListViewKey, 'list.view.open' | 'list.view.inProgress' | 'list.view.verify' | 'list.view.closed' | 'list.view.all'> = {

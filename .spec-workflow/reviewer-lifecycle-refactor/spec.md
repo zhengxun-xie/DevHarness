@@ -17,7 +17,11 @@
 
 ## Git entry
 
-- Git entry: **not a git repo**；无分支/HEAD/脏工作区基线；改动直接落盘。
+- Git entry: **git repo（本 spec 阶段初始化，A 方案）**。
+- Repo root: `/home/l-xiezhenxun/workspace/DevBuddy`；分支 `master`（默认）。
+- 基线 commit: `9354d24`（"baseline: DevBuddy before reviewer lifecycle refactor"）。
+- `.gitignore` 排除 `node_modules/`、`lib/` 等产物；`.devbuddy/` review 记录保留追踪。
+- 每个 ticket 完成后有可回退点；Auto-commit 仍为**否**（提交动作需人确认，不自动 commit）。
 
 ---
 

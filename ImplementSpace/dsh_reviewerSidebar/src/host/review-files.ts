@@ -30,6 +30,7 @@ import type {
   Severity,
   ThreadEntry,
 } from '../protocol.ts'
+import { DECISION_TYPES, STATUSES } from '../protocol.ts'
 
 export const REVIEW_SCHEMA_VERSION = 2
 /** Version stamped by legacy builds; read is still supported via lazy migration. */
@@ -77,11 +78,9 @@ function asObject(value: YamlValue | undefined): YamlObject {
 
 function asStatus(value: YamlValue | undefined): ReviewStatus {
   const text = asString(value, 'open')
-  const allowed: ReviewStatus[] = [
-    'open', 'discussing', 'needs_review', 'accepted', 'implementing',
-    'implemented', 'verifying', 'resolved', 'rejected', 'duplicated',
-  ]
-  return (allowed as string[]).includes(text) ? (text as ReviewStatus) : 'open'
+  // Membership comes from the single source in protocol.ts (design/06b E1).
+  // Ticket 02 narrows the write set and normalizes legacy names here.
+  return (STATUSES as readonly string[]).includes(text) ? (text as ReviewStatus) : 'open'
 }
 
 function asSeverity(value: YamlValue | undefined): Severity {
@@ -103,7 +102,7 @@ function asReviewType(value: YamlValue | undefined): ReviewType {
 const KNOWN_KEYS = new Set([
   'schemaVersion', 'schema_version', 'review_id', 'number', 'document', 'document_sha',
   'type', 'severity', 'title', 'status', 'tags', 'target', 'author', 'author_ref',
-  'assignee', 'related', 'decision', 'thread', 'created_at', 'updated_at',
+  'assignee', 'related', 'decision', 'decisions', 'thread', 'created_at', 'updated_at',
   'resolved_at', 'duplicated_of', 'comment_edited_at',
 ])
 
@@ -175,7 +174,7 @@ function authorRefToYaml(author: AuthorRef): YamlObject {
 function decisionFromYaml(value: YamlValue | undefined): ReviewDecision | null {
   if (!isYamlObject(value)) return null
   const type = asString(value.type)
-  if (!['accept', 'reject', 'defer', 'duplicate', 'wont_fix'].includes(type)) return null
+  if (!(DECISION_TYPES as readonly string[]).includes(type)) return null
   // v1 stored decided_by as a bare string; migrate it to a rich user identity.
   const decidedByRaw = value.decided_by ?? value.decidedBy
   const decidedBy = decidedByRaw === undefined || typeof decidedByRaw === 'string'
@@ -188,6 +187,13 @@ function decisionFromYaml(value: YamlValue | undefined): ReviewDecision | null {
     decidedBy,
     decidedAt: asString(value.decided_at ?? value.decidedAt),
   }
+}
+
+function decisionsFromYaml(value: YamlValue | undefined): ReviewDecision[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map(item => decisionFromYaml(item))
+    .filter((decision): decision is ReviewDecision => decision !== null)
 }
 
 function relatedFromYaml(value: YamlValue | undefined): ReviewRelated {
@@ -251,7 +257,7 @@ export function parseThreadSection(section: string): ThreadEntry[] {
       })
       continue
     }
-    const decisionMatch = /^Decision\((accept|reject|defer|duplicate|wont_fix)\):?\s?([\s\S]*)$/.exec(body)
+    const decisionMatch = /^Decision\((accept|reject|duplicate)\):?\s?([\s\S]*)$/.exec(body)
     if (decisionMatch !== null) {
       entries.push({
         ...base,
@@ -367,7 +373,7 @@ function entryFromYaml(value: YamlValue, index: number): ThreadEntry {
   if (o.from_status ?? o.fromStatus) entry.fromStatus = asStatus(o.from_status ?? o.fromStatus)
   if (o.to_status ?? o.toStatus) entry.toStatus = asStatus(o.to_status ?? o.toStatus)
   const decisionType = asString(o.decision_type ?? o.decisionType)
-  if (['accept', 'reject', 'defer', 'duplicate', 'wont_fix'].includes(decisionType)) {
+  if ((DECISION_TYPES as readonly string[]).includes(decisionType)) {
     entry.decisionType = decisionType as ThreadEntry['decisionType']
   }
   const decisionId = asNullableString(o.decision_id ?? o.decisionId)
@@ -500,6 +506,11 @@ export function parseReviewFile(content: string): ParsedReviewFile {
   const reviewId = asString(fm.review_id)
   const status = asStatus(fm.status)
   const decision = decisionFromYaml(fm.decision)
+  const decisions = decisionsFromYaml(fm.decisions)
+  // Lazy migration (spec §10): a legacy single `decision` becomes the
+  // append-only history on first read; the field itself stays for layout
+  // compat, `decision` mirrors the latest entry.
+  if (decisions.length === 0 && decision !== null) decisions.push(decision)
   const authorRef = asAuthorRef(fm.author_ref ?? fm.authorRef, asString(fm.author, 'reviewer'))
 
   const { comment, proposal } = parseBodySections(body)
@@ -537,6 +548,7 @@ export function parseReviewFile(content: string): ParsedReviewFile {
     assignee: asNullableString(fm.assignee),
     related: relatedFromYaml(fm.related),
     decision,
+    decisions,
     duplicatedOf: asNullableString(fm.duplicated_of ?? fm.duplicatedOf),
     createdAt: asString(fm.created_at ?? fm.createdAt),
     updatedAt: asString(fm.updated_at ?? fm.updatedAt),
@@ -629,8 +641,8 @@ export function formatThreadEntry(entry: ThreadEntry): string {
   let body = entry.body
   if (entry.kind === 'status' && entry.fromStatus !== undefined && entry.toStatus !== undefined) {
     body = `[${entry.fromStatus} -> ${entry.toStatus}] ${entry.body}`.trim()
-  } else if (entry.kind === 'decision') {
-    body = `Decision(${entry.decisionType ?? 'defer'}): ${entry.body}`
+  } else if (entry.kind === 'decision' && entry.decisionType !== undefined) {
+    body = `Decision(${entry.decisionType}): ${entry.body}`
   }
   const edited = entry.editedAt !== undefined ? ` (edited ${entry.editedAt})` : ''
   const reply = entry.replyTo !== undefined ? ` (reply ${entry.replyTo})` : ''
@@ -665,6 +677,7 @@ export function serializeReviewFile(record: ReviewRecord, extra: YamlObject = {}
     assignee: record.assignee,
     related: relatedToYaml(record.related),
     decision: decisionToYaml(record.decision),
+    decisions: record.decisions.map(decisionToYaml),
     thread: threadToYaml(thread),
     created_at: record.createdAt,
     updated_at: record.updatedAt,

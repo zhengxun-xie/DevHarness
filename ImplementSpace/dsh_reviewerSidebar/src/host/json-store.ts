@@ -21,9 +21,12 @@ const LOCK_STALE_MS = 30_000
 
 /** Acquire-style error: another writer holds the lock. */
 export class LockBusyError extends Error {
-  constructor(public readonly lockPath: string) {
+  readonly lockPath: string
+
+  constructor(lockPath: string) {
     super(`store: lock busy: ${lockPath}`)
     this.name = 'LockBusyError'
+    this.lockPath = lockPath
   }
 }
 

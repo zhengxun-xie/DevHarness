@@ -125,9 +125,11 @@ function nextEntryId(entries: ThreadEntry[]): string {
   return `ENTRY-${String(max + 1).padStart(4, '0')}`
 }
 
-/** Next stable DEC-#### by max+1 over canonical decisions and timeline links. */
+/** Next stable DEC-#### by max+1 over the decision history and timeline links. */
 function nextDecisionId(record: ReviewRecord): string {
-  let max = record.decision !== null ? decisionNumber(record.decision.id) : 0
+  let max = 0
+  for (const decision of record.decisions ?? []) max = Math.max(max, decisionNumber(decision.id))
+  if (record.decision !== null) max = Math.max(max, decisionNumber(record.decision.id))
   for (const entry of record.thread.entries) {
     if (entry.decisionId !== undefined) max = Math.max(max, decisionNumber(entry.decisionId))
   }
@@ -393,6 +395,7 @@ export class ReviewStore {
       assignee: null,
       related: emptyRelated(),
       decision: null,
+      decisions: [],
       duplicatedOf: null,
       createdAt: at,
       updatedAt: at,
@@ -599,6 +602,7 @@ export class ReviewStore {
         decidedAt: at,
       }
       parsed.record.decision = decision
+      parsed.record.decisions.push(decision)
       this.pushEntry(parsed.record, {
         at,
         author: REVIEWER_AUTHOR,
@@ -656,6 +660,7 @@ export class ReviewStore {
         decidedAt: at,
       }
       parsed.record.decision = decision
+      parsed.record.decisions.push(decision)
       this.pushEntry(parsed.record, {
         at,
         author: REVIEWER_AUTHOR,

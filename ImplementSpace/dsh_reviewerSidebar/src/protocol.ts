@@ -54,8 +54,12 @@ export type ReviewStatus =
   | 'rejected'
   | 'duplicated'
 
-/** Non-terminal statuses counted as "open" in badges and warnings. */
-export const OPEN_STATUSES: readonly ReviewStatus[] = [
+/**
+ * Canonical status set — the SINGLE source for status membership (design/06b
+ * E1: this list was previously duplicated across lifecycle.ts, review-files.ts
+ * and three client files; every other module must import from here).
+ */
+export const STATUSES: readonly ReviewStatus[] = [
   'open',
   'discussing',
   'needs_review',
@@ -63,9 +67,28 @@ export const OPEN_STATUSES: readonly ReviewStatus[] = [
   'implementing',
   'implemented',
   'verifying',
+  'resolved',
+  'rejected',
+  'duplicated',
 ]
 
 export const TERMINAL_STATUSES: readonly ReviewStatus[] = ['resolved', 'rejected', 'duplicated']
+
+/** Set form for cheap membership checks (typed permissive: string callers OK). */
+export const TERMINAL_STATUS_SET: ReadonlySet<string> = new Set<string>(TERMINAL_STATUSES)
+
+/** Non-terminal statuses counted as "open" in badges and warnings. */
+export const OPEN_STATUSES: readonly ReviewStatus[] = STATUSES.filter(
+  (status) => !TERMINAL_STATUS_SET.has(status),
+)
+
+export function isTerminal(status: ReviewStatus): boolean {
+  return TERMINAL_STATUS_SET.has(status)
+}
+
+export function isOpen(status: ReviewStatus): boolean {
+  return !isTerminal(status)
+}
 
 export type AnchorStatus = 'valid' | 'moved' | 'modified' | 'outdated' | 'orphaned'
 
@@ -97,10 +120,17 @@ export function isPointAnchor(anchor: Pick<ReviewAnchor, 'textual' | 'positional
 /** Anchor draft produced by the selection bridge (host computes fingerprint). */
 export type ReviewAnchorDraft = Omit<ReviewAnchor, 'fingerprint'>
 
+/**
+ * Decision types. `defer`/`wont_fix` were dropped (design/06b E2: they had no
+ * production path — dead enums).
+ */
+export const DECISION_TYPES = ['accept', 'reject', 'duplicate'] as const
+export type DecisionType = (typeof DECISION_TYPES)[number]
+
 export interface ReviewDecision {
   /** Stable id, DEC-#### within the review (append-only, never reused). */
   id: string
-  type: 'accept' | 'reject' | 'defer' | 'duplicate' | 'wont_fix'
+  type: DecisionType
   summary: string
   decidedBy: AuthorRef
   decidedAt: string
@@ -147,7 +177,7 @@ export interface ThreadEntry {
   editedAt?: string
   fromStatus?: ReviewStatus
   toStatus?: ReviewStatus
-  /** Present on kind === 'decision' entries: accept | reject | defer | duplicate | wont_fix. */
+  /** Present on kind === 'decision' entries: accept | reject | duplicate. */
   decisionType?: ReviewDecision['type']
   /** Links a kind === 'decision' timeline entry to its canonical ReviewDecision. */
   decisionId?: string
@@ -189,7 +219,15 @@ export interface ReviewRecord {
   authorRef: AuthorRef
   assignee: string | null
   related: ReviewRelated
+  /**
+   * Latest decision — projection of `decisions[decisions.length - 1]`,
+   * retained for v1/v2 layout compatibility. Canonical history is
+   * `decisions`; keep the two in sync on every write (a single value alone
+   * cannot hold the decision history needed for Reopen, design/06b E3).
+   */
   decision: ReviewDecision | null
+  /** Append-only decision history (spec reviewer-lifecycle-refactor §10). */
+  decisions: ReviewDecision[]
   duplicatedOf: string | null
   createdAt: string
   updatedAt: string

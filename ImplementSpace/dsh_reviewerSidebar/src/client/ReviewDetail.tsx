@@ -24,7 +24,7 @@ import {
 import { TransitionDialog } from './TransitionDialog.tsx'
 import type { TransitionRequest } from './TransitionDialog.tsx'
 import { AgentPreview } from './AgentPreview.tsx'
-import { REVIEW_TYPES, SEVERITIES } from '../protocol.ts'
+import { REVIEW_TYPES, SEVERITIES, TERMINAL_STATUS_SET } from '../protocol.ts'
 import type {
   AnchorResolution,
   ReviewRecord,
@@ -78,7 +78,6 @@ const PLAIN_ACTIONS: Partial<Record<ReviewStatus, Array<{ to: ReviewStatus; key:
 }
 
 const REMOVABLE: ReadonlySet<ReviewStatus> = new Set(['open', 'rejected', 'duplicated'])
-const TERMINAL: ReadonlySet<ReviewStatus> = new Set(['resolved', 'rejected', 'duplicated'])
 
 export interface ReviewDetailProps {
   projectId: string
@@ -280,7 +279,7 @@ export function ReviewDetail({
     )
   }
 
-  const terminal = TERMINAL.has(review.status)
+  const terminal = TERMINAL_STATUS_SET.has(review.status)
   const actions = PLAIN_ACTIONS[review.status] ?? []
   const canSendAgent = review.status === 'accepted' || review.status === 'open'
   const canRemove = REMOVABLE.has(review.status)

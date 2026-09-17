@@ -30,8 +30,8 @@ import type {
   DocumentReviewAnchor,
   Severity,
 } from '../protocol.ts'
+import { TERMINAL_STATUS_SET } from '../protocol.ts'
 
-const TERMINAL: ReadonlySet<string> = new Set(['resolved', 'rejected', 'duplicated'])
 const SEVERITY_RANK: Record<Severity, number> = { info: 0, minor: 1, major: 2, critical: 3 }
 const UNMARKED: ReadonlySet<string> = new Set(['outdated', 'orphaned'])
 
@@ -380,7 +380,7 @@ export function DocumentReviewView({
                         <button
                           key={review.reviewId}
                           type="button"
-                          className={`dbr-gutter-badge dbr-num-sev-${review.severity}${TERMINAL.has(review.status) ? ' dbr-is-terminal' : ''}`}
+                          className={`dbr-gutter-badge dbr-num-sev-${review.severity}${TERMINAL_STATUS_SET.has(review.status) ? ' dbr-is-terminal' : ''}`}
                           data-review-ids={review.reviewId}
                           title={`${review.number} ${review.reviewId}`}
                           onClick={event => openGroup([review], event)}
@@ -491,7 +491,7 @@ function markClassName(reviews: DocumentReviewAnchor[], point: boolean): string 
     : [`dbr-anchor-sev-${top.severity}`]
   if (reviews.every(r => r.anchorStatus === 'moved')) classes.push('dbr-anchor-moved')
   if (reviews.some(r => r.anchorStatus === 'modified')) classes.push('dbr-anchor-modified')
-  if (reviews.every(r => TERMINAL.has(r.status))) classes.push('dbr-is-terminal')
+  if (reviews.every(r => TERMINAL_STATUS_SET.has(r.status))) classes.push('dbr-is-terminal')
   return classes.join(' ')
 }
 

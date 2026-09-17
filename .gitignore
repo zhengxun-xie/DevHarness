@@ -6,6 +6,9 @@ lib/
 dist/
 *.tsbuildinfo
 
+# Package managers: repo tracks npm's lockfile; ignore pnpm's (local runner only)
+pnpm-lock.yaml
+
 # OS / editor
 .DS_Store
 *.log

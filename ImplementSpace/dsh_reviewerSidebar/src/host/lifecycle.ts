@@ -1,15 +1,34 @@
 /**
  * Review lifecycle state machine (design/06-lifecycle.md).
  *
+ * Single source of transitions; status-set membership itself lives in
+ * `../protocol.ts` (imported by both host and client) and is re-exported here
+ * so host callers have one import surface (design/06b E1).
+ *
  * All legal transitions are declared here; illegal transitions throw
  * IllegalTransitionError which routes map to HTTP 409.
  */
 import type { ReviewDecision, ReviewStatus } from '../protocol.ts'
 
+export {
+  STATUSES,
+  OPEN_STATUSES,
+  TERMINAL_STATUSES,
+  TERMINAL_STATUS_SET,
+  DECISION_TYPES,
+  isOpen,
+  isTerminal,
+} from '../protocol.ts'
+
 export class IllegalTransitionError extends Error {
-  constructor(public readonly from: ReviewStatus, public readonly to: ReviewStatus) {
+  readonly from: ReviewStatus
+  readonly to: ReviewStatus
+
+  constructor(from: ReviewStatus, to: ReviewStatus) {
     super(`illegal transition: ${from} -> ${to}`)
     this.name = 'IllegalTransitionError'
+    this.from = from
+    this.to = to
   }
 }
 
@@ -45,12 +64,4 @@ export function decisionTypeFor(to: ReviewStatus): ReviewDecision['type'] | null
     case 'duplicated': return 'duplicate'
     default: return null
   }
-}
-
-export function isTerminal(status: ReviewStatus): boolean {
-  return status === 'resolved' || status === 'rejected' || status === 'duplicated'
-}
-
-export function isOpen(status: ReviewStatus): boolean {
-  return !isTerminal(status)
 }
