@@ -119,6 +119,7 @@ export type ReviewerKey =
   | 'transition.backToOpen'
   | 'transition.startImplementing'
   | 'transition.declareDone'
+  | 'transition.confirmAgentDone'
   | 'transition.implementationBlocked'
   | 'transition.submitVerification'
   | 'transition.resolve'
@@ -148,6 +149,7 @@ export type ReviewerKey =
   | 'agent.copied'
   | 'agent.gitUnavailable'
   | 'agent.truncated'
+  | 'agent.doneHint'
   | 'agent.close'
 
 const en: Record<ReviewerKey, string> = {
@@ -263,6 +265,7 @@ const en: Record<ReviewerKey, string> = {
   'transition.backToOpen': 'Back to open',
   'transition.startImplementing': 'Start implementing',
   'transition.declareDone': 'Declare done',
+  'transition.confirmAgentDone': 'Confirm done',
   'transition.implementationBlocked': 'Implementation blocked',
   'transition.submitVerification': 'Submit for verification',
   'transition.resolve': 'Resolve',
@@ -292,6 +295,7 @@ const en: Record<ReviewerKey, string> = {
   'agent.copied': 'Copied',
   'agent.gitUnavailable': 'Not a git repository',
   'agent.truncated': 'Context truncated due to size limit',
+  'agent.doneHint': 'Agent reports completion · awaiting your verification:',
   'agent.close': 'Close',
 }
 
@@ -408,6 +412,7 @@ const zh: Record<ReviewerKey, string> = {
   'transition.backToOpen': '撤回讨论',
   'transition.startImplementing': '开始实施',
   'transition.declareDone': '声明完成',
+  'transition.confirmAgentDone': '确认完成',
   'transition.implementationBlocked': '实施受阻',
   'transition.submitVerification': '提交验证',
   'transition.resolve': '验收通过',
@@ -437,6 +442,7 @@ const zh: Record<ReviewerKey, string> = {
   'agent.copied': '已复制',
   'agent.gitUnavailable': '非 Git 仓库',
   'agent.truncated': 'Context 超出上限已截断',
+  'agent.doneHint': 'Agent 报告完成 · 待你验收：',
   'agent.close': '关闭',
 }
 

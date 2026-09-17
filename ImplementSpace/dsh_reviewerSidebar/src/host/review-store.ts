@@ -27,6 +27,7 @@ import {
   type ParsedReviewFile,
 } from './review-files.ts'
 import { resolveAnchor, parseHeadings } from './anchors.ts'
+import { scanReviewCommits } from './git-read.ts'
 import {
   assertTransition,
   decisionTypeFor,
@@ -396,6 +397,7 @@ export class ReviewStore {
       related: emptyRelated(),
       decision: null,
       decisions: [],
+      agentCompletion: null,
       duplicatedOf: null,
       createdAt: at,
       updatedAt: at,
@@ -557,6 +559,10 @@ export class ReviewStore {
     const to = input.to
     assertTransition(from, to)
 
+    // A human driving the workflow keeps / dismisses a pending agent
+    // completion suggestion (spec §9): the next human transition clears it.
+    parsed.record.agentCompletion = null
+
     // Conditional transitions (06 §2).
     if (to === 'rejected' && (input.reason ?? '').trim() === '') {
       throw new ValidationError('reason is required when rejecting a review')
@@ -607,6 +613,13 @@ export class ReviewStore {
     parsed.record.thread.status = to
     parsed.record.updatedAt = at
     if (to === 'resolved') parsed.record.resolvedAt = at
+    // Evidence chain (design/06 §8): backfill commit trailers when the review
+    // is entering a verification-bearing state. Best effort — never blocks.
+    if (to === 'implementing' || to === 'verifying' || to === 'resolved' || to === 'accepted') {
+      try {
+        await this.backfillReviewCommits(project.path, parsed.record)
+      } catch { /* git apathy must never block a transition */ }
+    }
     const sha = this.writeWithSlug(project.path, parsed.record, parsed.extra)
     this.scheduleIndexRebuild(project)
     return { review: parsed.record, sha }
@@ -632,6 +645,9 @@ export class ReviewStore {
       throw new ValidationError(`only accepted/open reviews can be sent to an agent (got ${status})`)
     }
     const at = nowIso()
+    // A fresh dispatch starts a new run; a completion suggestion from a
+    // previous run is stale the moment the human re-dispatches (spec §9).
+    parsed.record.agentCompletion = null
     const pushStatus = (from: ReviewStatus, to: ReviewStatus, body: string) => {
       this.pushEntry(parsed.record, {
         at,
@@ -802,6 +818,7 @@ export class ReviewStore {
           rpcId: run.rpcId,
           provider: run.provider,
           model: run.model,
+          sessionId: run.sessionId,
         })
       } catch (error) {
         // Feed handling must never throw into the platform event bus.
@@ -819,10 +836,12 @@ export class ReviewStore {
     rpcId: string
     provider: string | null
     model: string | null
+    sessionId: string
   }): void {
     const { project } = this.useProject(input.projectId)
     const parsed = this.readRecord(project, input.reviewId)
     if (isTerminal(parsed.record.status)) return
+    const at = nowIso()
     const author: AuthorRef = {
       type: 'agent',
       id: input.provider ?? 'agent',
@@ -831,14 +850,40 @@ export class ReviewStore {
       agentRunId: input.rpcId,
     }
     this.pushEntry(parsed.record, {
-      at: nowIso(),
+      at,
       author,
       kind: 'comment',
       body: input.body,
     })
+    // Agent completion is a SUGGESTION, not a state change (spec §9): when the
+    // review is still being implemented, remember that the agent reported done
+    // so the panel can offer a one-click confirm. The human decides; the next
+    // human-driven transition clears the suggestion. Agents never decide.
+    if (parsed.record.status === 'implementing') {
+      parsed.record.agentCompletion = {
+        at,
+        sessionId: input.sessionId,
+        rpcId: input.rpcId,
+        provider: input.provider,
+        model: input.model,
+      }
+    }
     parsed.record.updatedAt = nowIso()
     this.writeWithSlug(project.path, parsed.record, parsed.extra)
     this.scheduleIndexRebuild(project)
+  }
+
+  /**
+   * Evidence chain (design/06 §8): fold `DevBuddy-Review: <id>` commit trailers
+   * into `related.commits`. Read-only git, best effort; existing entries are
+   * kept and hashes are de-duplicated. Called from human-driven transitions, so
+   * the scan runs synchronously with the write (no detached background write).
+   */
+  private async backfillReviewCommits(projectPath: string, record: ReviewRecord): Promise<void> {
+    const hits = await scanReviewCommits(projectPath, record.reviewId)
+    for (const hit of hits) {
+      if (!record.related.commits.includes(hit.hash)) record.related.commits.push(hit.hash)
+    }
   }
 
   // -------------------------------------------------------------------------

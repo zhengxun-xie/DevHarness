@@ -231,6 +231,33 @@ export interface ReviewThread {
   entries: ThreadEntry[]
 }
 
+/**
+ * Set when a dispatched agent turn completes while the review is
+ * `implementing` (spec §9). It is a SUGGESTION, never a state change: the
+ * human confirms it, and the next human-driven transition clears it. Stored on
+ * the record so the panel can render the confirmation bar after a reload.
+ */
+export interface AgentCompletion {
+  at: string
+  /** Agent session the completion report came from. */
+  sessionId: string
+  /** Prompt rpcId of the dispatched run. */
+  rpcId: string
+  provider: string | null
+  model: string | null
+}
+
+/**
+ * The ONE display predicate for the "agent reported completion, awaiting your
+ * verification" bar (spec §9): a suggestion only counts while the review is
+ * still being implemented, and only a human transition clears it.
+ */
+export function hasAgentCompletionSuggestion(
+  record: Pick<ReviewRecord, 'status' | 'agentCompletion'>,
+): boolean {
+  return record.status === 'implementing' && record.agentCompletion !== null
+}
+
 export interface ReviewRecord {
   schemaVersion: 2
   reviewId: string
@@ -259,6 +286,11 @@ export interface ReviewRecord {
   decision: ReviewDecision | null
   /** Append-only decision history (spec reviewer-lifecycle-refactor §10). */
   decisions: ReviewDecision[]
+  /**
+   * Pending "agent reported completion" suggestion; null when there is nothing
+   * to confirm. Cleared by the next human-driven transition (spec §9).
+   */
+  agentCompletion: AgentCompletion | null
   duplicatedOf: string | null
   createdAt: string
   updatedAt: string

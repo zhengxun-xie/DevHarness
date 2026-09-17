@@ -13,7 +13,7 @@
  * The assembled payload is capped at 256 KiB by truncating code/tests first,
  * then the target document window, with truncated=true marked.
  */
-import { execFile } from 'node:child_process'
+import { gitAvailable, runGit } from './git-read.ts'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { resolve, relative, isAbsolute } from 'node:path'
 import {
@@ -34,7 +34,6 @@ import type {
 } from '../protocol.ts'
 
 const MAX_CONTEXT_BYTES = 256 * 1024
-const GIT_TIMEOUT_MS = 5000
 const GIT_LOG_LIMIT = 20
 const TARGET_DOC_FLOOR_BYTES = 32 * 1024
 const TEST_DIR_HINTS = new Set(['tests', 'test', '__tests__'])
@@ -70,27 +69,8 @@ function readProjectFile(projectPath: string, relPath: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Git (read-only, best effort)
+// Git (read-only, best effort) — shared helpers live in ./git-read.ts
 // ---------------------------------------------------------------------------
-
-function runGit(projectPath: string, args: string[]): Promise<string | null> {
-  return new Promise((resolvePromise) => {
-    const child = execFile(
-      'git',
-      args,
-      { cwd: projectPath, timeout: GIT_TIMEOUT_MS, maxBuffer: 2 * 1024 * 1024, windowsHide: true },
-      (error, stdout) => {
-        resolvePromise(error ? null : stdout)
-      },
-    )
-    child.on('error', () => resolvePromise(null))
-  })
-}
-
-async function gitAvailable(projectPath: string): Promise<boolean> {
-  const out = await runGit(projectPath, ['rev-parse', '--is-inside-work-tree'])
-  return out !== null && out.trim() === 'true'
-}
 
 interface GitLogEntry {
   hash: string

@@ -24,7 +24,7 @@ import {
 import { TransitionDialog } from './TransitionDialog.tsx'
 import type { TransitionRequest } from './TransitionDialog.tsx'
 import { AgentPreview } from './AgentPreview.tsx'
-import { REVIEW_TYPES, SEVERITIES, TERMINAL_STATUS_SET, normalizeStatus } from '../protocol.ts'
+import { REVIEW_TYPES, SEVERITIES, TERMINAL_STATUS_SET, hasAgentCompletionSuggestion, normalizeStatus } from '../protocol.ts'
 import type {
   AnchorResolution,
   ReviewRecord,
@@ -293,6 +293,19 @@ export function ReviewDetail({
 
       {conflict && <div className="dbr-toast dbr-bad">{t('detail.error.conflict')} <a onClick={() => void load()}>{t('panel.refresh')}</a></div>}
       {error !== null && !conflict && <div className="dbr-error">{error}</div>}
+
+      {hasAgentCompletionSuggestion(review) && (
+        <div className="dbr-toast dbr-ok">
+          <b>{t('agent.doneHint')}</b>
+          <button
+            type="button"
+            className="dbr-primary"
+            style={{ marginLeft: 8 }}
+            disabled={busy}
+            onClick={() => setDialog({ to: 'verifying', kind: 'verify' })}
+          >{t('transition.confirmAgentDone')}</button>
+        </div>
+      )}
 
       <div className="dbr-detail-head">
         <div className="dbr-detail-title">{review.title ?? t('list.untitled')}</div>

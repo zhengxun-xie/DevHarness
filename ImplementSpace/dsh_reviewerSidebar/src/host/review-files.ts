@@ -19,6 +19,7 @@ import { resolve } from 'node:path'
 import { sha256 } from './projects.ts'
 import { parseYaml, serializeYaml, isYamlObject, type YamlObject, type YamlValue } from './yaml-lite.ts'
 import type {
+  AgentCompletion,
   AuthorRef,
   ReviewAnchor,
   ReviewDecision,
@@ -113,8 +114,8 @@ function asReviewType(value: YamlValue | undefined): ReviewType {
 const KNOWN_KEYS = new Set([
   'schemaVersion', 'schema_version', 'review_id', 'number', 'document', 'document_sha',
   'type', 'severity', 'title', 'status', 'tags', 'target', 'author', 'author_ref',
-  'assignee', 'related', 'decision', 'decisions', 'thread', 'created_at', 'updated_at',
-  'resolved_at', 'duplicated_of', 'comment_edited_at',
+  'assignee', 'related', 'decision', 'decisions', 'agent_completion', 'thread',
+  'created_at', 'updated_at', 'resolved_at', 'duplicated_of', 'comment_edited_at',
 ])
 
 /** Parse optional LF 0-based caret offsets; legacy files omit them. */
@@ -205,6 +206,31 @@ function decisionsFromYaml(value: YamlValue | undefined): ReviewDecision[] {
   return value
     .map(item => decisionFromYaml(item))
     .filter((decision): decision is ReviewDecision => decision !== null)
+}
+
+function agentCompletionFromYaml(value: YamlValue | undefined): AgentCompletion | null {
+  if (!isYamlObject(value)) return null
+  const at = asString(value.at)
+  const sessionId = asString(value.session_id ?? value.sessionId)
+  if (at === '' || sessionId === '') return null
+  return {
+    at,
+    sessionId,
+    rpcId: asString(value.rpc_id ?? value.rpcId),
+    provider: asNullableString(value.provider),
+    model: asNullableString(value.model),
+  }
+}
+
+function agentCompletionToYaml(completion: AgentCompletion | null): YamlValue {
+  if (completion === null) return null
+  return {
+    at: completion.at,
+    session_id: completion.sessionId,
+    rpc_id: completion.rpcId,
+    provider: completion.provider,
+    model: completion.model,
+  }
 }
 
 function relatedFromYaml(value: YamlValue | undefined): ReviewRelated {
@@ -560,6 +586,7 @@ export function parseReviewFile(content: string): ParsedReviewFile {
     related: relatedFromYaml(fm.related),
     decision,
     decisions,
+    agentCompletion: agentCompletionFromYaml(fm.agent_completion),
     duplicatedOf: asNullableString(fm.duplicated_of ?? fm.duplicatedOf),
     createdAt: asString(fm.created_at ?? fm.createdAt),
     updatedAt: asString(fm.updated_at ?? fm.updatedAt),
@@ -689,6 +716,7 @@ export function serializeReviewFile(record: ReviewRecord, extra: YamlObject = {}
     related: relatedToYaml(record.related),
     decision: decisionToYaml(record.decision),
     decisions: record.decisions.map(decisionToYaml),
+    agent_completion: agentCompletionToYaml(record.agentCompletion),
     thread: threadToYaml(thread),
     created_at: record.createdAt,
     updated_at: record.updatedAt,
