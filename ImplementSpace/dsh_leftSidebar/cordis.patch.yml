@@ -1,0 +1,14 @@
+# dsh-devbuddy-left bundle patch: inserts the dual-face plugin row into the
+# web profile roster. The node half (exports ".") runs in the DSH host process
+# and serves /api/devbuddy-left/* over loopback; the dsh.client declaration in
+# package.json makes the browser half (exports "./client", served at
+# /plugins/dsh-devbuddy-left/client.js) load in the web GUI, where it registers
+# a global panel icon into the LEFT sidebar (sidebar.panellist) and its wide
+# body into the keyed `main` slot (key: devbuddy).
+#
+# It coexists with the right-sidebar implementation: distinct bundle id,
+# distinct API prefix, but the SAME on-disk registry (~/.dsh/devbuddy/) and
+# node file conventions, so both surfaces show the same projects.
+- insert:
+    - id: devbuddy-left
+      name: 'dsh-devbuddy-left'

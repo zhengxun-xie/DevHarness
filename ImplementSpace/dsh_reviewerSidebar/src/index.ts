@@ -1,0 +1,61 @@
+/**
+ * DevBuddy Reviewer host half (RIGHT-sidebar implementation).
+ *
+ * Registers the loopback JSON API backing the Reviewer right-sidebar tab:
+ * review CRUD over Markdown records, anchor resolution, the review lifecycle
+ * state machine, agent context assembly and session dispatch.
+ *
+ * The browser half ships in ./client (src/client/index.tsx); the two
+ * communicate over /api/devbuddy/* on ctx.webServer. The plugin shares the
+ * on-disk project registry with dsh-devbuddy-left but never imports it.
+ *
+ * @module dsh-devbuddy-reviewer
+ */
+import type { Context } from '@deepseek-ai/cordis'
+import { ReviewStore } from './host/review-store.ts'
+import { reviewerRoutes } from './host/routes.ts'
+import {
+  workspaceInfoProvider,
+  type WorkspaceRegistryLike,
+} from './host/workspaces.ts'
+import { AgentDispatcher, type SessionControllerLike } from './host/agent-dispatch.ts'
+import { registerSessionFeed } from './host/session-feed.ts'
+
+export const name = 'dsh-devbuddy-reviewer'
+export const inject = ['webServer']
+
+/**
+ * Mount the Reviewer API for the lifetime of the plugin fiber.
+ * @param ctx - host context carrying the webServer carrier service.
+ */
+export function apply(ctx: Context): void {
+  const store = new ReviewStore()
+  let workspaceRegistry: WorkspaceRegistryLike | null = null
+  let sessionController: SessionControllerLike | null = null
+
+  // Platform services are attached lazily/structurally (same style as
+  // dsh-taskboard): if a service is absent, the dependent feature degrades
+  // (workspace link stays null / agent send returns delivered:false) rather
+  // than failing plugin activation.
+  ctx.inject(['workspaceRegistry'], (wsCtx) => {
+    const registry = (wsCtx as unknown as { workspaceRegistry: WorkspaceRegistryLike }).workspaceRegistry
+    workspaceRegistry = registry
+    store.attachWorkspaceProvider(workspaceInfoProvider(registry))
+  })
+
+  ctx.inject(['sessionController'], (sessionCtx) => {
+    sessionController = (sessionCtx as unknown as { sessionController: SessionControllerLike }).sessionController
+  })
+
+  ctx.effect(() => {
+    const dispatcher = new AgentDispatcher(() => sessionController, () => workspaceRegistry)
+    const disposers = reviewerRoutes(store, dispatcher).map(route => ctx.webServer.register(route))
+    // Correlate dispatched runs (prompt requestId -> user/message rpcId ->
+    // turn assistant text -> agent-authored review thread comment).
+    const disposeFeed = registerSessionFeed(ctx, store)
+    disposers.push(disposeFeed)
+    return () => { for (const dispose of disposers) dispose() }
+  }, 'dsh-devbuddy-reviewer: loopback api')
+
+  process.stderr.write('[dsh-devbuddy-reviewer] host API mounted at /api/devbuddy\n')
+}

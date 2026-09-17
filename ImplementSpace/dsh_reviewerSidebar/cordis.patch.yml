@@ -1,0 +1,15 @@
+# dsh-devbuddy-reviewer bundle patch: inserts the dual-face plugin row into
+# the web profile roster. The node half (exports ".") runs in the DSH host
+# process and serves /api/devbuddy/* over loopback; the dsh.client declaration
+# in package.json makes the browser half (exports "./client", served at
+# /plugins/dsh-devbuddy-reviewer/client.js) load in the web GUI, where it
+# registers a review tab into the RIGHT sidebar via the two-phase
+# sidebarRightTabs.register + slots.inject('sidebar.right.pane.tab') flow.
+#
+# It coexists with the left-sidebar implementation: distinct bundle id,
+# distinct API prefix (/api/devbuddy vs /api/devbuddy-left), sharing the same
+# on-disk project registry (~/.dsh/devbuddy/registry.json) and the same
+# project directories (reviews live under <project>/.devbuddy/reviews/).
+- insert:
+    - id: devbuddy-reviewer
+      name: 'dsh-devbuddy-reviewer'
