@@ -49,11 +49,9 @@ export type ReviewerKey =
   | 'type.test_issue'
   | 'type.exploration'
   | 'status.open'
-  | 'status.discussing'
   | 'status.needs_review'
   | 'status.accepted'
   | 'status.implementing'
-  | 'status.implemented'
   | 'status.verifying'
   | 'status.resolved'
   | 'status.rejected'
@@ -119,9 +117,9 @@ export type ReviewerKey =
   | 'transition.duplicate'
   | 'transition.needsReview'
   | 'transition.backToOpen'
-  | 'transition.backToDiscussing'
   | 'transition.startImplementing'
-  | 'transition.markImplemented'
+  | 'transition.declareDone'
+  | 'transition.implementationBlocked'
   | 'transition.submitVerification'
   | 'transition.resolve'
   | 'transition.failVerification'
@@ -195,11 +193,9 @@ const en: Record<ReviewerKey, string> = {
   'type.test_issue': 'Test issue',
   'type.exploration': 'Exploration',
   'status.open': 'Open',
-  'status.discussing': 'Discussing',
   'status.needs_review': 'Needs review',
   'status.accepted': 'Accepted',
   'status.implementing': 'Implementing',
-  'status.implemented': 'Implemented',
   'status.verifying': 'Verifying',
   'status.resolved': 'Resolved',
   'status.rejected': 'Rejected',
@@ -265,9 +261,9 @@ const en: Record<ReviewerKey, string> = {
   'transition.duplicate': 'Duplicate',
   'transition.needsReview': 'Mark needs review',
   'transition.backToOpen': 'Back to open',
-  'transition.backToDiscussing': 'Reopen discussion',
   'transition.startImplementing': 'Start implementing',
-  'transition.markImplemented': 'Mark implemented',
+  'transition.declareDone': 'Declare done',
+  'transition.implementationBlocked': 'Implementation blocked',
   'transition.submitVerification': 'Submit for verification',
   'transition.resolve': 'Resolve',
   'transition.failVerification': 'Fail verification',
@@ -342,11 +338,9 @@ const zh: Record<ReviewerKey, string> = {
   'type.test_issue': '测试问题',
   'type.exploration': '探索',
   'status.open': '待处理',
-  'status.discussing': '讨论中',
   'status.needs_review': '待复核',
   'status.accepted': '已接受',
   'status.implementing': '实施中',
-  'status.implemented': '已实施',
   'status.verifying': '待验收',
   'status.resolved': '已解决',
   'status.rejected': '已拒绝',
@@ -412,9 +406,9 @@ const zh: Record<ReviewerKey, string> = {
   'transition.duplicate': '标记重复',
   'transition.needsReview': '标记待复核',
   'transition.backToOpen': '撤回讨论',
-  'transition.backToDiscussing': '重新讨论',
   'transition.startImplementing': '开始实施',
-  'transition.markImplemented': '标记已实施',
+  'transition.declareDone': '声明完成',
+  'transition.implementationBlocked': '实施受阻',
   'transition.submitVerification': '提交验证',
   'transition.resolve': '验收通过',
   'transition.failVerification': '验收不通过',

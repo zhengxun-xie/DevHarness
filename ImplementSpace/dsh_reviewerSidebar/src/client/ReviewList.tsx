@@ -19,9 +19,10 @@ import { formatTime, severityClass, severityLabel, statusLabel } from './format.
 export type ListViewKey = 'open' | 'inProgress' | 'verify' | 'closed' | 'all'
 
 const VIEW_STATUS: Record<Exclude<ListViewKey, 'all'>, string[]> = {
-  open: ['open', 'discussing', 'needs_review'],
+  // Views map 1:1 onto the converged status set (spec §8, refactor §9.2).
+  open: ['open'],
   inProgress: ['accepted', 'implementing'],
-  verify: ['implemented', 'verifying'],
+  verify: ['verifying', 'needs_review'],
   // Terminal membership comes from the single source in protocol.ts (design/06b E1).
   closed: [...TERMINAL_STATUSES],
 }

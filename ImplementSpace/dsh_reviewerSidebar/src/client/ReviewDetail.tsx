@@ -24,7 +24,7 @@ import {
 import { TransitionDialog } from './TransitionDialog.tsx'
 import type { TransitionRequest } from './TransitionDialog.tsx'
 import { AgentPreview } from './AgentPreview.tsx'
-import { REVIEW_TYPES, SEVERITIES, TERMINAL_STATUS_SET } from '../protocol.ts'
+import { REVIEW_TYPES, SEVERITIES, TERMINAL_STATUS_SET, normalizeStatus } from '../protocol.ts'
 import type {
   AnchorResolution,
   ReviewRecord,
@@ -39,41 +39,36 @@ type PlainActionKey =
   | 'transition.accept'
   | 'transition.needsReview'
   | 'transition.backToOpen'
-  | 'transition.backToDiscussing'
   | 'transition.startImplementing'
-  | 'transition.markImplemented'
-  | 'transition.failVerification'
+  | 'transition.implementationBlocked'
   | 'transition.resolve'
 
-/** Statuses reachable without extra input (plain transition buttons). */
+/**
+ * Statuses reachable without extra input (plain transition buttons) for the
+ * converged 8-status set (spec §5). `implementing -> verifying` collects
+ * evidence and `verifying -> implementing` requires a reason, so both run
+ * through TransitionDialog instead of appearing here.
+ */
 const PLAIN_ACTIONS: Partial<Record<ReviewStatus, Array<{ to: ReviewStatus; key: PlainActionKey }>>> = {
   open: [
     { to: 'accepted', key: 'transition.accept' },
     { to: 'needs_review', key: 'transition.needsReview' },
   ],
-  discussing: [
-    { to: 'open', key: 'transition.backToOpen' },
-    { to: 'needs_review', key: 'transition.needsReview' },
-    { to: 'accepted', key: 'transition.accept' },
-  ],
   needs_review: [
-    { to: 'discussing', key: 'transition.backToDiscussing' },
+    { to: 'open', key: 'transition.backToOpen' },
   ],
   accepted: [
     { to: 'implementing', key: 'transition.startImplementing' },
-    { to: 'discussing', key: 'transition.backToDiscussing' },
+    { to: 'open', key: 'transition.backToOpen' },
   ],
   implementing: [
-    { to: 'implemented', key: 'transition.markImplemented' },
-    { to: 'discussing', key: 'transition.backToDiscussing' },
-  ],
-  implemented: [
-    { to: 'implementing', key: 'transition.failVerification' },
+    { to: 'accepted', key: 'transition.implementationBlocked' },
+    { to: 'open', key: 'transition.backToOpen' },
   ],
   verifying: [
     { to: 'resolved', key: 'transition.resolve' },
-    { to: 'implementing', key: 'transition.failVerification' },
     { to: 'needs_review', key: 'transition.needsReview' },
+    { to: 'open', key: 'transition.backToOpen' },
   ],
 }
 
@@ -478,7 +473,7 @@ export function ReviewDetail({
             }}
           >{t(action.key)}</button>
         ))}
-        {(review.status === 'open' || review.status === 'discussing' || review.status === 'needs_review') && (
+        {(review.status === 'open' || review.status === 'needs_review') && (
           <>
             <button type="button" disabled={busy}
               onClick={() => setDialog({ to: 'rejected', kind: 'reject' })}>
@@ -490,10 +485,10 @@ export function ReviewDetail({
             </button>
           </>
         )}
-        {review.status === 'implemented' && (
+        {review.status === 'implementing' && (
           <button type="button" className="dbr-primary" disabled={busy}
             onClick={() => setDialog({ to: 'verifying', kind: 'verify' })}>
-            {t('transition.submitVerification')}
+            {t('transition.declareDone')}
           </button>
         )}
         {review.status === 'verifying' && (
@@ -556,10 +551,12 @@ function AnchorNote({ resolution, t }: { resolution: AnchorResolution; t: Transl
 }
 
 function statusText(entry: ThreadEntry, t: TranslateFunction): string {
+  // Legacy history entries (`discussing`, `implemented`) render through the
+  // converged labels (refactor §8.3) while the raw names stay on disk.
   const parts: string[] = []
-  if (entry.fromStatus) parts.push(statusLabel(t, entry.fromStatus))
+  if (entry.fromStatus) parts.push(statusLabel(t, normalizeStatus(entry.fromStatus)))
   parts.push('→')
-  if (entry.toStatus) parts.push(statusLabel(t, entry.toStatus))
+  if (entry.toStatus) parts.push(statusLabel(t, normalizeStatus(entry.toStatus)))
   return parts.join(' ')
 }
 

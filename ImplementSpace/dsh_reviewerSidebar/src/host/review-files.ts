@@ -28,9 +28,10 @@ import type {
   ReviewThread,
   ReviewType,
   Severity,
+  StoredReviewStatus,
   ThreadEntry,
 } from '../protocol.ts'
-import { DECISION_TYPES, STATUSES } from '../protocol.ts'
+import { DECISION_TYPES, STORED_STATUSES, normalizeStatus } from '../protocol.ts'
 
 export const REVIEW_SCHEMA_VERSION = 2
 /** Version stamped by legacy builds; read is still supported via lazy migration. */
@@ -76,11 +77,21 @@ function asObject(value: YamlValue | undefined): YamlObject {
   return isYamlObject(value) ? value : {}
 }
 
-function asStatus(value: YamlValue | undefined): ReviewStatus {
+/** Raw read: write set + legacy aliases, deliberately NOT normalized. */
+function asStoredStatus(value: YamlValue | undefined): StoredReviewStatus {
   const text = asString(value, 'open')
-  // Membership comes from the single source in protocol.ts (design/06b E1).
-  // Ticket 02 narrows the write set and normalizes legacy names here.
-  return (STATUSES as readonly string[]).includes(text) ? (text as ReviewStatus) : 'open'
+  return (STORED_STATUSES as readonly string[]).includes(text)
+    ? (text as StoredReviewStatus)
+    : 'open'
+}
+
+/**
+ * Review status: legacy names are normalized onto the converged 8-status set
+ * (design 06 §11). Thread entries keep their raw historical names instead —
+ * see asStoredStatus above — so the audit trail is never rewritten.
+ */
+function asStatus(value: YamlValue | undefined): ReviewStatus {
+  return normalizeStatus(asStoredStatus(value))
 }
 
 function asSeverity(value: YamlValue | undefined): Severity {
@@ -252,8 +263,8 @@ export function parseThreadSection(section: string): ThreadEntry[] {
         ...base,
         kind: 'status',
         body: statusMatch[3],
-        fromStatus: statusMatch[1] as ReviewStatus,
-        toStatus: statusMatch[2] as ReviewStatus,
+        fromStatus: statusMatch[1] as StoredReviewStatus,
+        toStatus: statusMatch[2] as StoredReviewStatus,
       })
       continue
     }
@@ -370,8 +381,8 @@ function entryFromYaml(value: YamlValue, index: number): ThreadEntry {
   if (replyTo !== null) entry.replyTo = replyTo
   const editedAt = asNullableString(o.edited_at ?? o.editedAt)
   if (editedAt !== null) entry.editedAt = editedAt
-  if (o.from_status ?? o.fromStatus) entry.fromStatus = asStatus(o.from_status ?? o.fromStatus)
-  if (o.to_status ?? o.toStatus) entry.toStatus = asStatus(o.to_status ?? o.toStatus)
+  if (o.from_status ?? o.fromStatus) entry.fromStatus = asStoredStatus(o.from_status ?? o.fromStatus)
+  if (o.to_status ?? o.toStatus) entry.toStatus = asStoredStatus(o.to_status ?? o.toStatus)
   const decisionType = asString(o.decision_type ?? o.decisionType)
   if ((DECISION_TYPES as readonly string[]).includes(decisionType)) {
     entry.decisionType = decisionType as ThreadEntry['decisionType']

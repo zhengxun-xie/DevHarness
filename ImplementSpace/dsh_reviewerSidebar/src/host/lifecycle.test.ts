@@ -1,10 +1,10 @@
 /**
- * Lifecycle state-machine regression baseline (spec reviewer-lifecycle-refactor
- * ticket 01).
+ * Lifecycle state-machine tests for the converged 8-status write set (spec
+ * reviewer-lifecycle-refactor §5, ticket 02).
  *
- * IMPORTANT: ticket 01 deliberately keeps the CURRENT 10-status semantics —
- * this file pins them so ticket 02's convergence (10 -> 8) has to update these
- * expectations on purpose instead of drifting silently.
+ * `discussing` folded into `open`; `implemented` folded into `verifying`.
+ * Terminal -> open (Reopen) intentionally lands with its own ticket, so it is
+ * pinned here as NOT yet legal to keep this file an honest regression baseline.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -22,7 +22,7 @@ import {
 import type { ReviewStatus } from '../protocol.ts'
 
 test('STATUSES is the single canonical status set and partitions into open/terminal', () => {
-  assert.equal(STATUSES.length, 10)
+  assert.equal(STATUSES.length, 8)
   assert.deepEqual([...TERMINAL_STATUSES], ['resolved', 'rejected', 'duplicated'])
   // OPEN_STATUSES is derived from STATUSES, so the two sets must partition it
   // exactly — no missing, no duplicated, no extra member.
@@ -43,31 +43,25 @@ test('isTerminal/isOpen agree with TERMINAL_STATUSES for every status', () => {
 })
 
 const LEGAL: Array<[ReviewStatus, ReviewStatus]> = [
-  ['open', 'discussing'],
-  ['open', 'needs_review'],
   ['open', 'accepted'],
   ['open', 'rejected'],
   ['open', 'duplicated'],
-  ['discussing', 'open'],
-  ['discussing', 'needs_review'],
-  ['discussing', 'accepted'],
-  ['discussing', 'rejected'],
-  ['discussing', 'duplicated'],
-  ['needs_review', 'discussing'],
+  ['open', 'needs_review'],
+  ['needs_review', 'open'],
   ['needs_review', 'rejected'],
   ['needs_review', 'duplicated'],
   ['accepted', 'implementing'],
-  ['accepted', 'discussing'],
-  ['implementing', 'implemented'],
-  ['implementing', 'discussing'],
-  ['implemented', 'verifying'],
-  ['implemented', 'implementing'],
+  ['accepted', 'open'],
+  ['implementing', 'verifying'],
+  ['implementing', 'accepted'],
+  ['implementing', 'open'],
   ['verifying', 'resolved'],
   ['verifying', 'implementing'],
   ['verifying', 'needs_review'],
+  ['verifying', 'open'],
 ]
 
-test('every legal transition of the current table is accepted', () => {
+test('every legal transition of the converged table is accepted', () => {
   for (const [from, to] of LEGAL) {
     assert.equal(canTransition(from, to), true, `${from} -> ${to} should be legal`)
     assert.doesNotThrow(() => assertTransition(from, to), `${from} -> ${to} should not throw`)
@@ -76,16 +70,17 @@ test('every legal transition of the current table is accepted', () => {
 
 const ILLEGAL: Array<[ReviewStatus, ReviewStatus]> = [
   ['open', 'implementing'],
-  ['open', 'implemented'],
   ['open', 'verifying'],
   ['open', 'resolved'],
   ['accepted', 'resolved'],
-  ['accepted', 'implemented'],
-  ['verifying', 'open'],
-  ['resolved', 'open'],
-  ['rejected', 'discussing'],
-  ['duplicated', 'accepted'],
+  ['accepted', 'verifying'],
   ['needs_review', 'accepted'],
+  ['needs_review', 'implementing'],
+  ['verifying', 'accepted'],
+  ['resolved', 'open'], // Reopen: lands with its own ticket — not legal yet.
+  ['resolved', 'implementing'],
+  ['rejected', 'open'],
+  ['duplicated', 'accepted'],
 ]
 
 test('every illegal transition is rejected with the error fields populated', () => {
@@ -110,8 +105,7 @@ test('decisionTypeFor maps only decision-bearing targets', () => {
   assert.equal(decisionTypeFor('rejected'), 'reject')
   assert.equal(decisionTypeFor('duplicated'), 'duplicate')
   const nonDecision: ReviewStatus[] = [
-    'open', 'discussing', 'needs_review', 'implementing', 'implemented', 'verifying',
-    'resolved',
+    'open', 'needs_review', 'implementing', 'verifying', 'resolved',
   ]
   for (const status of nonDecision) {
     assert.equal(decisionTypeFor(status), null, `decisionTypeFor(${status})`)

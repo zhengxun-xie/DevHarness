@@ -437,18 +437,9 @@ export class ReviewStore {
       body,
       ...(input.replyTo !== undefined ? { replyTo: input.replyTo } : {}),
     })
-    // First substantive follow-up moves open -> discussing (06 §2).
-    if (parsed.record.status === 'open') {
-      parsed.record.status = 'discussing'
-      this.pushEntry(parsed.record, {
-        at: nowIso(),
-        author: REVIEWER_AUTHOR,
-        kind: 'status',
-        body: 'discussion started',
-        fromStatus: 'open',
-        toStatus: 'discussing',
-      })
-    }
+    // Discussion no longer moves the state (spec §5, refactor §4.1): the
+    // `discussing` status is gone, and the thread already carries the fact
+    // that a conversation is happening — no status noise on every reply.
     parsed.record.updatedAt = nowIso()
     const sha = this.writeWithSlug(project.path, parsed.record, parsed.extra)
     this.scheduleIndexRebuild(project)
@@ -623,8 +614,9 @@ export class ReviewStore {
 
   /**
    * Post-dispatch state write-back (design/07 §5): accepted/open -> implementing.
-   * An open review first passes through accepted (the send confirmation is the
-   * human acceptance), producing the accept Decision, then enters implementing.
+   * Sending to an agent IS the human acceptance, so an open review records the
+   * accept Decision and ONE status entry straight to implementing — there is no
+   * `accepted` stopover the user never clicked (spec §9, refactor §2.3).
    * assignee and related.agentRuns record the target session id.
    */
   markAgentDispatched(input: {
@@ -651,7 +643,6 @@ export class ReviewStore {
       })
     }
     if (status === 'open') {
-      pushStatus('open', 'accepted', `accepted when sending to agent session ${input.sessionId}`)
       const decision: ReviewDecision = {
         id: nextDecisionId(parsed.record),
         type: 'accept',
@@ -669,10 +660,8 @@ export class ReviewStore {
         decisionType: 'accept',
         decisionId: decision.id,
       })
-      parsed.record.status = 'accepted'
-      parsed.record.thread.status = 'accepted'
     }
-    pushStatus('accepted', 'implementing', `dispatched to agent session ${input.sessionId}`)
+    pushStatus(status, 'implementing', `dispatched to agent session ${input.sessionId}`)
     parsed.record.status = 'implementing'
     parsed.record.thread.status = 'implementing'
     parsed.record.assignee = input.sessionId

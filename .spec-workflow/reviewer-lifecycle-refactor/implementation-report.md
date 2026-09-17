@@ -29,4 +29,30 @@
 - `ReviewDetail.REMOVABLE` 是独立的删除规约（open+2 终态），ticket 05 Reopen 时再审。
 - 真实旧文件（`.devbuddy/reviews/REV-0001，schemaVersion 1，单值 decision，无 id 字段）与测试 fixture 同源，读路径已覆盖：迁移后 `decisions` 补 `DEC-0001`。
 
-**Commit**：待用户确认（auto-commit=否）。
+**Commit**：`1da2b2b`。
+
+## Ticket 02 — 状态收敛 8 态 + 读时归一化 + 视图分组 ✅
+
+**改动**：
+- `src/protocol.ts`：`ReviewStatus` 收敛为 8 态；新增 `LegacyReviewStatus` / `StoredReviewStatus` / `LEGACY_STATUS_MAP` / `STORED_STATUSES` / `normalizeStatus()`；`ThreadEntry.fromStatus/toStatus` 改用 `StoredReviewStatus`（历史原名可落盘）。
+- `src/host/lifecycle.ts`：`ALLOWED` 重写为 8 态迁移表（`open→accepted/rejected/duplicated/needs_review`；`accepted→implementing/open`；`implementing→verifying/accepted/open`；`verifying→resolved/implementing/needs_review/open`；`needs_review→open/rejected/duplicated`；终态无出边，Reopen 留给 t05）。
+- `src/host/review-files.ts`：新增 `asStoredStatus`（原始读，含 legacy 名）与 `asStatus`（归一化）；记录状态归一化，**线程历史条目保留原名**（真实审计）；线程原文正则与结构化字段都走原始读。
+- `src/host/review-store.ts`：删除首条回复自动 `open→discussing`（讨论不再推动状态）；`markAgentDispatched` 不再补写人没点过的 `accepted` 条目——open 直接一条 `open→implementing` + 一条 accept decision（`accepted` 起点仍走 `accepted→implementing`）。
+- `src/client/ReviewList.tsx`：四视图重映射 `open:[open]` / `inProgress:[accepted,implementing]` / `verify:[verifying,needs_review]` / `closed:[终态]`（对齐 refactor §9.2）。
+- `src/client/ReviewDetail.tsx`：`PLAIN_ACTIONS` 重写为 8 态；删 `discussing`/`implemented` 分支；`implemented→verifying` 的按钮改为 `implementing→verifying`（键 `transition.declareDone`，保留证据弹窗）；顺带修正原先 `verifying→implementing` 同时出现「平铺按钮 + 弹窗按钮」的重复；`statusText()` 按 §8.3 对历史状态做显示映射。
+- `src/client/locales.ts`：删 `status.discussing`/`status.implemented`、`transition.backToDiscussing`/`transition.markImplemented`；新增 `transition.declareDone`（声明完成 / Declare done）、`transition.implementationBlocked`（实施受阻 / Implementation blocked）。
+- 测试更新/新增：`lifecycle.test.ts` 重写为 8 态基线（16 条合法/12 条非法逐条 + 终态暂不可 Reopen 的显式 pin）；`review-files.test.ts` 新增归一化表 + 「记录状态归一、历史条目保原名」测试。
+
+**自验**：
+- `pnpm typecheck` ✅
+- `pnpm test` **14/14** ✅
+- `pnpm build`（host ESM + client CJS）✅
+- grep 残留：`discussing`/`implemented` 仅存在于 `protocol.ts` 的 `LegacyReviewStatus` 声明 ✅
+
+**设计判读（已核对用户参考文档）**：
+- `needs_review` 归入 **Verify** 视图 —— 与 `reviewer_设计参考/lifecycle-refactor.md` §9.2 一致（spec §8 原文如此，非笔误）。
+- 历史条目 `[discussing → open]` 数据保原名、**渲染时映射**为收敛后词表（refactor §8.3 明确要求），故该条会显示为 `open → open`；这是文档化契约，换取 UI 只有一套状态词表。
+- `implementing→verifying` 保留证据弹窗（合并原 `implemented→verifying` 的 evidence 采集，点击少一次、信息不丢）。
+
+**Commit**：见下条记录。
+

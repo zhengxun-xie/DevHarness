@@ -1,5 +1,10 @@
 /**
- * Review lifecycle state machine (design/06-lifecycle.md).
+ * Review lifecycle state machine (design/06-lifecycle.md, refactor §4).
+ *
+ * Converged 8-status write set (spec §5): `discussing` folded into `open`,
+ * `implemented` folded into `verifying`. Terminal -> open (Reopen) is added by
+ * the reopen ticket; `needs_review` re-entry from a system anchor trip is added
+ * by the anchor-triage ticket.
  *
  * Single source of transitions; status-set membership itself lives in
  * `../protocol.ts` (imported by both host and client) and is re-exported here
@@ -15,7 +20,10 @@ export {
   OPEN_STATUSES,
   TERMINAL_STATUSES,
   TERMINAL_STATUS_SET,
+  STORED_STATUSES,
   DECISION_TYPES,
+  LEGACY_STATUS_MAP,
+  normalizeStatus,
   isOpen,
   isTerminal,
 } from '../protocol.ts'
@@ -35,14 +43,17 @@ export class IllegalTransitionError extends Error {
 type Allowed = Partial<Record<ReviewStatus, ReviewStatus[]>>
 
 const ALLOWED: Allowed = {
-  open: ['discussing', 'needs_review', 'accepted', 'rejected', 'duplicated'],
-  discussing: ['open', 'needs_review', 'accepted', 'rejected', 'duplicated'],
-  needs_review: ['discussing', 'rejected', 'duplicated'],
-  accepted: ['implementing', 'discussing'],
-  implementing: ['implemented', 'discussing'],
-  implemented: ['verifying', 'implementing'],
-  verifying: ['resolved', 'implementing', 'needs_review'],
-  // terminal states: no outgoing transitions.
+  // Awaiting a decision; discussion no longer moves the state (spec §5).
+  open: ['accepted', 'rejected', 'duplicated', 'needs_review'],
+  // Anchor could not be relocated: wait for a human to rebind it.
+  needs_review: ['open', 'rejected', 'duplicated'],
+  accepted: ['implementing', 'open'],
+  // "Declared done" lands directly in verifying (no `implemented` stopover);
+  // accepted covers implementation blocked / approach changed.
+  implementing: ['verifying', 'accepted', 'open'],
+  verifying: ['resolved', 'implementing', 'needs_review', 'open'],
+  // Terminal states: no outgoing transitions yet (Reopen arrives with the
+  // reopen ticket, which owns the reason-required + critical-only-human rules).
   resolved: [],
   rejected: [],
   duplicated: [],

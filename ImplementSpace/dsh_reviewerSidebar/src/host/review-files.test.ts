@@ -15,6 +15,7 @@ import {
   parseThreadSection,
   serializeReviewFile,
 } from './review-files.ts'
+import { normalizeStatus } from '../protocol.ts'
 
 /** Legacy v1 shape: single `decision:`, no `decisions:`, no thread frontmatter. */
 const LEGACY_FILE = `---
@@ -131,6 +132,41 @@ test('thread lines: live decision markers parse, dead ones fall back to comments
   const dead = parseThreadSection('- [2026-09-17T00:00:00.000Z / reviewer] Decision(defer): later')
   assert.equal(dead.length, 1)
   assert.equal(dead[0].kind, 'comment', 'defer is not a decision marker any more')
+})
+
+test('legacy statuses normalize onto the converged set (design 06 §11)', () => {
+  const cases: Array<[string, string]> = [
+    ['discussing', 'open'],
+    ['implemented', 'verifying'],
+    ['open', 'open'],
+    ['needs_review', 'needs_review'],
+    ['accepted', 'accepted'],
+    ['implementing', 'implementing'],
+    ['verifying', 'verifying'],
+    ['resolved', 'resolved'],
+    ['rejected', 'rejected'],
+    ['duplicated', 'duplicated'],
+    ['bogus', 'open'], // historical silent fallback is kept for unknown values
+  ]
+  for (const [input, expected] of cases) {
+    assert.equal(normalizeStatus(input), expected, `normalizeStatus(${input})`)
+  }
+})
+
+test('a legacy record status is normalized while thread history keeps raw names', () => {
+  const { record } = parseReviewFile(
+    LEGACY_FILE.replace('status: resolved', 'status: implemented'),
+  )
+  // Record status: legacy `implemented` reads as `verifying`.
+  assert.equal(record.status, 'verifying')
+
+  // Thread history: raw names survive (they are real audit records).
+  const history = parseThreadSection(
+    '- [2026-09-16T07:26:04.097Z / reviewer] [implementing -> implemented]',
+  )
+  assert.equal(history[0].kind, 'status')
+  assert.equal(history[0].fromStatus, 'implementing')
+  assert.equal(history[0].toStatus, 'implemented')
 })
 
 test('a decision entry without a type degrades to a comment line, never a fake decision', () => {

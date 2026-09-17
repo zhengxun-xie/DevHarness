@@ -44,15 +44,28 @@ export const REVIEW_TYPES: readonly ReviewType[] = [
 
 export type ReviewStatus =
   | 'open'
-  | 'discussing'
   | 'needs_review'
   | 'accepted'
   | 'implementing'
-  | 'implemented'
   | 'verifying'
   | 'resolved'
   | 'rejected'
   | 'duplicated'
+
+/**
+ * Legacy write-side statuses, dropped by the lifecycle convergence (spec §5/§11):
+ * `discussing` merged into `open`, `implemented` merged into `verifying`.
+ * Files written by older builds may still carry them — they are recognized on
+ * READ and normalized via LEGACY_STATUS_MAP, but the write path never emits
+ * them. The target set is a strict subset of the old enum, so older plugin
+ * builds reading new files never hit their silent `asStatus` fallback.
+ */
+export type LegacyReviewStatus = 'discussing' | 'implemented'
+
+export const LEGACY_STATUS_MAP: Record<LegacyReviewStatus, ReviewStatus> = {
+  discussing: 'open',
+  implemented: 'verifying',
+}
 
 /**
  * Canonical status set — the SINGLE source for status membership (design/06b
@@ -61,11 +74,9 @@ export type ReviewStatus =
  */
 export const STATUSES: readonly ReviewStatus[] = [
   'open',
-  'discussing',
   'needs_review',
   'accepted',
   'implementing',
-  'implemented',
   'verifying',
   'resolved',
   'rejected',
@@ -88,6 +99,26 @@ export function isTerminal(status: ReviewStatus): boolean {
 
 export function isOpen(status: ReviewStatus): boolean {
   return !isTerminal(status)
+}
+
+/** Any status name that may legally appear on disk (canonical set + legacy). */
+export type StoredReviewStatus = ReviewStatus | LegacyReviewStatus
+
+/** Read whitelist: the write set plus the legacy aliases (design 06 §11). */
+export const STORED_STATUSES: readonly StoredReviewStatus[] = [
+  ...STATUSES,
+  ...(Object.keys(LEGACY_STATUS_MAP) as LegacyReviewStatus[]),
+]
+
+/**
+ * Read-time normalization (design 06 §11 / refactor §8.1): legacy names
+ * collapse onto the canonical set; anything unrecognized falls back to `open`
+ * (the historical `asStatus` behavior). Write paths must never need this.
+ */
+export function normalizeStatus(status: string): ReviewStatus {
+  const mapped = (LEGACY_STATUS_MAP as Record<string, ReviewStatus | undefined>)[status]
+  if (mapped !== undefined) return mapped
+  return (STATUSES as readonly string[]).includes(status) ? (status as ReviewStatus) : 'open'
 }
 
 export type AnchorStatus = 'valid' | 'moved' | 'modified' | 'outdated' | 'orphaned'
@@ -175,8 +206,8 @@ export interface ThreadEntry {
   replyTo?: string
   /** Set when this entry's body was edited after publication (GitHub-style "edited" marker). */
   editedAt?: string
-  fromStatus?: ReviewStatus
-  toStatus?: ReviewStatus
+  fromStatus?: StoredReviewStatus
+  toStatus?: StoredReviewStatus
   /** Present on kind === 'decision' entries: accept | reject | duplicate. */
   decisionType?: ReviewDecision['type']
   /** Links a kind === 'decision' timeline entry to its canonical ReviewDecision. */
