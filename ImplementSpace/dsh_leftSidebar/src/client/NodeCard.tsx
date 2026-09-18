@@ -9,9 +9,11 @@
  *     back) without losing either surface — the active segment is
  *     highlighted exactly like the editor's mode buttons;
  *   - an amber dirty dot marks unsaved edits;
- *   - 保存/放弃 show only in edit mode; SAVING NEVER LEAVES EDIT MODE
- *     (same convention as the editor's Ctrl+S), and discarding just resets
- *     the draft to the saved text.
+ *   - 保存/放弃 show only in edit mode; the explicit 保存 button stays in
+ *     edit mode (same convention as the editor's Ctrl+S), while switching
+ *     edit → preview AUTO-SAVES the draft first (a failed write keeps the
+ *     card in edit mode so the unsaved text is never dropped); discarding
+ *     just resets the draft to the saved text.
  *
  * Preview renders Markdown through the shell's platform-seeded
  * `MarkdownText` primitive — the same GFM renderer used by the sidebar
@@ -337,9 +339,18 @@ export function NodeCard({
     }
   }
 
-  /** Select the preview segment (always reachable, even while editing). */
+  /**
+   * Select the preview segment (always reachable, even while editing).
+   * Switching edit → preview AUTO-SAVES the current draft first (user
+   * requirement: the transition must persist the file); if the write fails
+   * we stay in edit mode so the unsaved text is never dropped.
+   */
   async function openPreview(): Promise<void> {
     if (mode === 'preview') return
+    if (dirty) {
+      const ok = await save()
+      if (!ok) return
+    }
     setMode('preview')
     if (content === null) {
       try {
@@ -374,9 +385,10 @@ export function NodeCard({
     setStatus(null)
   }
 
-  /** Save stays in edit mode — mirroring the file editor's Ctrl+S. */
-  async function save(): Promise<void> {
-    if (busy) return
+  /** Save stays in edit mode — mirroring the file editor's Ctrl+S. Resolves
+   *  true on success so the edit→preview switch can gate on the write. */
+  async function save(): Promise<boolean> {
+    if (busy) return false
     setBusy(true)
     setStatus(null)
     try {
@@ -388,8 +400,10 @@ export function NodeCard({
       setStatus({ kind: 'ok', text: labels.saved })
       // Anchors are line-based; the new revision may move or orphan them.
       void refreshReviews()
+      return true
     } catch (error) {
       setStatus({ kind: 'error', text: error instanceof Error ? error.message : String(error) })
+      return false
     } finally {
       setBusy(false)
     }
