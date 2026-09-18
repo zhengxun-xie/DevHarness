@@ -48,8 +48,9 @@ export type ReviewerKey =
   | 'type.implementation_issue'
   | 'type.test_issue'
   | 'type.exploration'
-  | 'relatedParty.human'
-  | 'relatedParty.agent'
+  | 'relatedParty.auto'
+  | 'relatedParty.employee_a'
+  | 'relatedParty.agent_a'
   | 'typeDesc.question'
   | 'typeDesc.suggestion'
   | 'typeDesc.bug'
@@ -209,8 +210,9 @@ const en: Record<ReviewerKey, string> = {
   'type.implementation_issue': 'Implementation',
   'type.test_issue': 'Test',
   'type.exploration': 'Exploration',
-  'relatedParty.human': 'Human',
-  'relatedParty.agent': 'Agent',
+  'relatedParty.auto': 'Auto',
+  'relatedParty.employee_a': 'Employee_A',
+  'relatedParty.agent_a': 'Agent_A',
   'typeDesc.question': 'Open-ended discussion: explore ideas, trade-offs, or ask for input without a specific defect to fix.',
   'typeDesc.suggestion': 'Propose an improvement to existing design or code — optional but beneficial.',
   'typeDesc.bug': 'Report a defect: the document or implementation does not match intent or spec.',
@@ -371,8 +373,9 @@ const zh: Record<ReviewerKey, string> = {
   'type.implementation_issue': '实现',
   'type.test_issue': '测试',
   'type.exploration': '探索',
-  'relatedParty.human': '人工',
-  'relatedParty.agent': 'agent',
+  'relatedParty.auto': '自动',
+  'relatedParty.employee_a': '员工_A',
+  'relatedParty.agent_a': 'Agent_A',
   'typeDesc.question': '开放式讨论：探讨思路、权衡利弊或征求意见，无需指向某个具体缺陷。',
   'typeDesc.suggestion': '对现有设计或代码提出改进建议——非必须但值得优化。',
   'typeDesc.bug': '报告缺陷：文档或实现与意图/规范不一致。',

@@ -340,23 +340,23 @@ test('relatedParties: create normalizes, edit replaces, invalid is refused', asy
     document: 'doc.md',
     target: anchor(),
     comment: 'needs work',
-    relatedParties: ['human', 'agent'],
+    relatedParties: ['employee_a', 'agent_a'],
   }
   const { review } = await store.createReview(input)
-  assert.deepEqual(review.relatedParties, ['human', 'agent'], 'create persists the selected parties')
+  assert.deepEqual(review.relatedParties, ['employee_a', 'agent_a'], 'create persists the selected parties')
 
   const edited = await store.editReview({
     projectId: PROJECT_ID,
     reviewId: review.reviewId,
-    relatedParties: ['agent'],
+    relatedParties: ['agent_a'],
   })
-  assert.deepEqual(edited.review.relatedParties, ['agent'], 'edit replaces the whole list')
+  assert.deepEqual(edited.review.relatedParties, ['agent_a'], 'edit replaces the whole list')
 
   await assert.rejects(
     store.editReview({
       projectId: PROJECT_ID,
       reviewId: review.reviewId,
-      relatedParties: 'human' as unknown as [],
+      relatedParties: 'employee_a' as unknown as [],
     }),
     (error: unknown) => error instanceof ValidationError,
   )

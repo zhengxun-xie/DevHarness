@@ -25,7 +25,8 @@ import { TransitionDialog } from './TransitionDialog.tsx'
 import type { TransitionRequest } from './TransitionDialog.tsx'
 import type { ReviewerKey } from './locales.ts'
 import { AgentPreview } from './AgentPreview.tsx'
-import { RELATED_PARTIES, REVIEW_TYPES, SEVERITIES, TERMINAL_STATUS_SET, hasAgentCompletionSuggestion, normalizeStatus } from '../protocol.ts'
+import { RelatedPartySelect } from './RelatedPartySelect.tsx'
+import { REVIEW_TYPES, SEVERITIES, TERMINAL_STATUS_SET, hasAgentCompletionSuggestion, normalizeStatus } from '../protocol.ts'
 import type {
   AnchorResolution,
   RelatedParty,
@@ -407,6 +408,10 @@ export function ReviewDetail({
               </select>
             </div>
             <div className="dbr-field">
+              <label>{t('composer.relatedParties')}</label>
+              <RelatedPartySelect value={relatedPartiesDraft} onChange={setRelatedPartiesDraft} t={t} disabled={busy} />
+            </div>
+            <div className="dbr-field">
               <label>{t('composer.severity')}</label>
               <select value={severityDraft} onChange={event => setSeverityDraft(event.target.value as Severity)}>
                 {SEVERITIES.map(value => (
@@ -426,23 +431,6 @@ export function ReviewDetail({
           <div className="dbr-field">
             <label>{t('composer.tags')}（{t('composer.tagsHint')}）</label>
             <input value={tagsDraft} onChange={event => setTagsDraft(event.target.value)} />
-          </div>
-          <div className="dbr-field">
-            <label>{t('composer.relatedParties')}</label>
-            <select
-              multiple
-              size={RELATED_PARTIES.length}
-              value={relatedPartiesDraft}
-              onChange={event => {
-                const selected = Array.from(event.target.selectedOptions)
-                  .map(option => option.value as RelatedParty)
-                setRelatedPartiesDraft(selected)
-              }}
-            >
-              {RELATED_PARTIES.map(value => (
-                <option key={value} value={value}>{t(`relatedParty.${value}`)}</option>
-              ))}
-            </select>
           </div>
           <div className="dbr-field">
             <label>{t('detail.comment')}</label>

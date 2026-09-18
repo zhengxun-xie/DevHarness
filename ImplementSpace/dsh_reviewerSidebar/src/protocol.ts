@@ -42,11 +42,12 @@ export const REVIEW_TYPES: readonly ReviewType[] = [
   'test_issue',
 ]
 
-/** Review「关联方」attribute: who/what this review is associated with. */
-export type RelatedParty = 'human' | 'agent'
+/** Review「关联方」attribute: which party (employee / agent) is associated with
+ *  this review. An empty list means 自动 (auto-detect) — the default. */
+export type RelatedParty = 'employee_a' | 'agent_a'
 
 /** Valid related-party codes (the UI multi-select options). */
-export const RELATED_PARTIES: readonly RelatedParty[] = ['human', 'agent']
+export const RELATED_PARTIES: readonly RelatedParty[] = ['employee_a', 'agent_a']
 
 /** Type guard for a raw string against the known related-party codes. */
 export function isRelatedParty(value: string): value is RelatedParty {

@@ -262,6 +262,38 @@ const CSS = `
 .dbr-field-row { display: flex; gap: 8px; }
 .dbr-field-row .dbr-field { flex: 1; }
 
+/* 关联方 collapsible multi-select */
+.dbr-ms { position: relative; }
+.dbr-ms-trigger {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  font: inherit; text-align: left; cursor: pointer;
+  color: var(--dsw-alias-label-primary, rgba(0,0,0,0.88));
+  background: var(--dsw-alias-bg-base, #fff);
+  border: 1px solid var(--dsw-alias-border-l3, var(--border-color, rgba(0,0,0,0.18)));
+  border-radius: 6px; padding: 4px 8px;
+}
+.dbr-ms-trigger:disabled { opacity: 0.6; cursor: default; }
+.dbr-ms-value { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbr-ms-value.is-empty { color: var(--dsw-alias-label-tertiary, rgba(0,0,0,0.35)); }
+.dbr-ms-caret { font-size: 10px; opacity: 0.6; }
+.dbr-ms-menu {
+  position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0;
+  background: var(--dsw-alias-bg-base, #fff);
+  border: 1px solid var(--dsw-alias-border-l3, var(--border-color, rgba(0,0,0,0.18)));
+  border-radius: 6px; padding: 4px; box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+  max-height: 220px; overflow-y: auto;
+}
+.dbr-ms-option {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 12px;
+}
+.dbr-ms-option:hover { background: var(--dsw-alias-bg-hover, rgba(0,0,0,0.06)); }
+.dbr-ms-option input { width: auto; margin: 0; }
+.dbr-ms-option.is-auto {
+  border-bottom: 1px solid var(--dsw-alias-border-l3, rgba(0,0,0,0.12));
+  margin-bottom: 4px; padding-bottom: 6px;
+}
+
 /* selection bar */
 .dbr-selection-bar {
   display: flex; align-items: center; gap: 8px;

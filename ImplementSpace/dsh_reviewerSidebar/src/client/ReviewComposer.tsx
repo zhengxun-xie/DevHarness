@@ -6,10 +6,11 @@
  */
 import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { REVIEW_TYPES, SEVERITIES, RELATED_PARTIES, isPointAnchor } from '../protocol.ts'
+import { REVIEW_TYPES, SEVERITIES, isPointAnchor } from '../protocol.ts'
 import type { RelatedParty, ReviewAnchorDraft, ReviewType, Severity } from '../protocol.ts'
 import type { TranslateFunction } from './format.ts'
 import { validateSelection, type SelectionError } from './selection.ts'
+import { RelatedPartySelect } from './RelatedPartySelect.tsx'
 
 export interface ComposerDraft {
   projectId: string
@@ -135,6 +136,10 @@ export function ReviewComposer({ draft, onSubmit, onCancel, t }: ReviewComposerP
           </select>
         </div>
         <div className="dbr-field">
+          <label>{t('composer.relatedParties')}</label>
+          <RelatedPartySelect value={relatedParties} onChange={setRelatedParties} t={t} disabled={submitting} />
+        </div>
+        <div className="dbr-field">
           <label>{t('composer.severity')}</label>
           <select value={severity} onChange={event => setSeverity(event.target.value as Severity)}>
             {SEVERITIES.map(value => (
@@ -165,24 +170,6 @@ export function ReviewComposer({ draft, onSubmit, onCancel, t }: ReviewComposerP
       <div className="dbr-field">
         <label>{t('composer.tags')}（{t('composer.tagsHint')}）</label>
         <input value={tagsText} onChange={event => setTagsText(event.target.value)} />
-      </div>
-
-      <div className="dbr-field">
-        <label>{t('composer.relatedParties')}</label>
-        <select
-          multiple
-          size={RELATED_PARTIES.length}
-          value={relatedParties}
-          onChange={event => {
-            const selected = Array.from(event.target.selectedOptions)
-              .map(option => option.value as RelatedParty)
-            setRelatedParties(selected)
-          }}
-        >
-          {RELATED_PARTIES.map(value => (
-            <option key={value} value={value}>{t(`relatedParty.${value}`)}</option>
-          ))}
-        </select>
       </div>
 
       {error !== null && <div className="dbr-error">{error}</div>}
