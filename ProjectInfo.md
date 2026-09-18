@@ -14,7 +14,7 @@ DevBuddy 是一个用于项目开发自动化工作流的软件，目前以一�
 
 ## git 地址
 
-TODO：当前尚未配置远程仓库地址（本地已初始化 git 仓库，但 `git remote` 为空），待远程仓库确定后补充，形如 `git@example.com:team/DevBuddy.git` 或 `https://example.com/team/DevBuddy.git`。
+`https://github.com/zhengxun-xie/DevBuddy.git`
 
 ---
 
