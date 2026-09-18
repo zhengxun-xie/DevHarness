@@ -260,7 +260,7 @@ const CSS = `
   cursor: help; user-select: none; vertical-align: middle;
 }
 .dbr-field-row { display: flex; gap: 8px; }
-.dbr-field-row .dbr-field { flex: 1; }
+.dbr-field-row .dbr-field { flex: 1; min-width: 0; }
 
 /* 关联方 collapsible multi-select */
 .dbr-ms { position: relative; }
