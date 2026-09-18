@@ -42,6 +42,28 @@ export const REVIEW_TYPES: readonly ReviewType[] = [
   'test_issue',
 ]
 
+/** Review「关联方」attribute: who/what this review is associated with. */
+export type RelatedParty = 'human' | 'agent'
+
+/** Valid related-party codes (the UI multi-select options). */
+export const RELATED_PARTIES: readonly RelatedParty[] = ['human', 'agent']
+
+/** Type guard for a raw string against the known related-party codes. */
+export function isRelatedParty(value: string): value is RelatedParty {
+  return (RELATED_PARTIES as readonly string[]).includes(value)
+}
+
+/** Normalize arbitrary input to a deduped, known-values-only related-party list. */
+export function normalizeRelatedParties(values: readonly unknown[]): RelatedParty[] {
+  const out: RelatedParty[] = []
+  for (const value of values) {
+    if (typeof value === 'string' && isRelatedParty(value) && !out.includes(value)) {
+      out.push(value)
+    }
+  }
+  return out
+}
+
 export type ReviewStatus =
   | 'open'
   | 'needs_review'
@@ -270,6 +292,8 @@ export interface ReviewRecord {
   title: string | null
   status: ReviewStatus
   tags: string[]
+  /** 关联方 codes (human / agent), multi-select; empty = unset. */
+  relatedParties: RelatedParty[]
   target: ReviewAnchor
   /** Projection of the opening-comment author id; kept for list filtering. */
   author: string
@@ -321,6 +345,7 @@ export interface ReviewSummary {
   lineStart: number
   lineEnd: number
   tags: string[]
+  relatedParties: RelatedParty[]
   author: string
   assignee: string | null
   createdAt: string
@@ -410,6 +435,7 @@ export interface CreateReviewRequest {
   comment: string
   proposal?: string
   tags?: string[]
+  relatedParties?: RelatedParty[]
   documentSha?: string | null
 }
 
@@ -452,6 +478,8 @@ export interface EditReviewRequest {
   type?: ReviewType
   /** Replaces the whole tag list; omit to leave unchanged. */
   tags?: string[]
+  /** Replaces the whole related-party list; omit to leave unchanged. */
+  relatedParties?: RelatedParty[]
   expectedSha?: string | null
 }
 

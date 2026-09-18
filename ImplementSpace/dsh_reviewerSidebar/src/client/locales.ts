@@ -48,6 +48,17 @@ export type ReviewerKey =
   | 'type.implementation_issue'
   | 'type.test_issue'
   | 'type.exploration'
+  | 'relatedParty.human'
+  | 'relatedParty.agent'
+  | 'typeDesc.question'
+  | 'typeDesc.suggestion'
+  | 'typeDesc.bug'
+  | 'typeDesc.design_issue'
+  | 'typeDesc.requirement_issue'
+  | 'typeDesc.implementation_issue'
+  | 'typeDesc.test_issue'
+  | 'typeDesc.exploration'
+  | 'composer.typeHint'
   | 'status.open'
   | 'status.needs_review'
   | 'status.accepted'
@@ -85,6 +96,7 @@ export type ReviewerKey =
   | 'composer.proposalPlaceholder'
   | 'composer.tags'
   | 'composer.tagsHint'
+  | 'composer.relatedParties'
   | 'composer.selection'
   | 'composer.pointAnchor'
   | 'composer.submit'
@@ -189,7 +201,7 @@ const en: Record<ReviewerKey, string> = {
   'severity.minor': 'P2',
   'severity.major': 'P1',
   'severity.critical': 'P0',
-  'type.question': 'Question',
+  'type.question': 'Discussion',
   'type.suggestion': 'Suggestion',
   'type.bug': 'Bug',
   'type.design_issue': 'Design',
@@ -197,6 +209,16 @@ const en: Record<ReviewerKey, string> = {
   'type.implementation_issue': 'Implementation',
   'type.test_issue': 'Test',
   'type.exploration': 'Exploration',
+  'relatedParty.human': 'Human',
+  'relatedParty.agent': 'Agent',
+  'typeDesc.question': 'Open-ended discussion: explore ideas, trade-offs, or ask for input without a specific defect to fix.',
+  'typeDesc.suggestion': 'Propose an improvement to existing design or code — optional but beneficial.',
+  'typeDesc.bug': 'Report a defect: the document or implementation does not match intent or spec.',
+  'typeDesc.design_issue': 'Architectural or design-level concern: abstraction, coupling, responsibility, or pattern violation.',
+  'typeDesc.requirement_issue': 'The requirement itself is missing, ambiguous, contradictory, or untestable.',
+  'typeDesc.implementation_issue': 'The implementation deviates from the requirement or has logic / data-flow errors.',
+  'typeDesc.test_issue': 'Test coverage gap, wrong test expectation, or test that does not verify the right behavior.',
+  'typeDesc.exploration': 'Investigate feasibility, spike a prototype, or gather information before committing to a direction.',
   'status.open': 'Open',
   'status.needs_review': 'Needs review',
   'status.accepted': 'Accepted',
@@ -225,6 +247,7 @@ const en: Record<ReviewerKey, string> = {
 
   'composer.addReview': '💬 Add Review',
   'composer.type': 'Type',
+  'composer.typeHint': 'Hover each option for a description of when to use it.',
   'composer.severity': 'Priority',
   'composer.title': 'Title',
   'composer.titlePlaceholder': 'Short summary (optional)',
@@ -234,6 +257,7 @@ const en: Record<ReviewerKey, string> = {
   'composer.proposalPlaceholder': 'Suggested change (optional)',
   'composer.tags': 'Tags',
   'composer.tagsHint': 'Comma-separated',
+  'composer.relatedParties': 'Related parties',
   'composer.selection': 'Selection',
   'composer.pointAnchor': 'Point comment — no selected text, anchored at caret',
   'composer.submit': 'Submit Review',
@@ -339,7 +363,7 @@ const zh: Record<ReviewerKey, string> = {
   'severity.minor': 'P2',
   'severity.major': 'P1',
   'severity.critical': 'P0',
-  'type.question': '疑问',
+  'type.question': '讨论',
   'type.suggestion': '建议',
   'type.bug': '缺陷',
   'type.design_issue': '设计',
@@ -347,6 +371,16 @@ const zh: Record<ReviewerKey, string> = {
   'type.implementation_issue': '实现',
   'type.test_issue': '测试',
   'type.exploration': '探索',
+  'relatedParty.human': '人工',
+  'relatedParty.agent': 'agent',
+  'typeDesc.question': '开放式讨论：探讨思路、权衡利弊或征求意见，无需指向某个具体缺陷。',
+  'typeDesc.suggestion': '对现有设计或代码提出改进建议——非必须但值得优化。',
+  'typeDesc.bug': '报告缺陷：文档或实现与意图/规范不一致。',
+  'typeDesc.design_issue': '架构或设计层面的隐患：抽象、耦合、职责划分或模式违反。',
+  'typeDesc.requirement_issue': '需求本身缺失、模糊、自相矛盾或不可测试。',
+  'typeDesc.implementation_issue': '实现偏离需求，或存在逻辑/数据流错误。',
+  'typeDesc.test_issue': '测试覆盖缺口、断言有误或测试未验证正确行为。',
+  'typeDesc.exploration': '可行性调研、原型验证或方向探路，尚未决定是否推进。',
   'status.open': '待处理',
   'status.needs_review': '待复核',
   'status.accepted': '已接受',
@@ -375,6 +409,7 @@ const zh: Record<ReviewerKey, string> = {
 
   'composer.addReview': '💬 新建评审',
   'composer.type': '类型',
+  'composer.typeHint': '鼠标悬停每个选项可查看使用说明。',
   'composer.severity': '优先级',
   'composer.title': '标题',
   'composer.titlePlaceholder': '一句话概述（可选）',
@@ -384,6 +419,7 @@ const zh: Record<ReviewerKey, string> = {
   'composer.proposalPlaceholder': '建议的改法（可选）',
   'composer.tags': '标签',
   'composer.tagsHint': '用逗号分隔',
+  'composer.relatedParties': '关联方',
   'composer.selection': '选区',
   'composer.pointAnchor': '插入点评论（无选中文字，锚定在光标位置）',
   'composer.submit': '提交评审',

@@ -32,7 +32,7 @@ import type {
   StoredReviewStatus,
   ThreadEntry,
 } from '../protocol.ts'
-import { DECISION_TYPES, STORED_STATUSES, normalizeStatus } from '../protocol.ts'
+import { DECISION_TYPES, STORED_STATUSES, normalizeRelatedParties, normalizeStatus } from '../protocol.ts'
 
 export const REVIEW_SCHEMA_VERSION = 2
 /** Version stamped by legacy builds; read is still supported via lazy migration. */
@@ -113,7 +113,7 @@ function asReviewType(value: YamlValue | undefined): ReviewType {
 
 const KNOWN_KEYS = new Set([
   'schemaVersion', 'schema_version', 'review_id', 'number', 'document', 'document_sha',
-  'type', 'severity', 'title', 'status', 'tags', 'target', 'author', 'author_ref',
+  'type', 'severity', 'title', 'status', 'tags', 'related_parties', 'target', 'author', 'author_ref',
   'assignee', 'related', 'decision', 'decisions', 'agent_completion', 'thread',
   'created_at', 'updated_at', 'resolved_at', 'duplicated_of', 'comment_edited_at',
 ])
@@ -579,6 +579,7 @@ export function parseReviewFile(content: string): ParsedReviewFile {
     title: asNullableString(fm.title),
     status,
     tags: asStringArray(fm.tags),
+    relatedParties: normalizeRelatedParties(asStringArray(fm.related_parties)),
     target: anchorFromYaml(asObject(fm.target)),
     author: asString(fm.author, authorRef.id) || authorRef.id,
     authorRef,
@@ -709,6 +710,7 @@ export function serializeReviewFile(record: ReviewRecord, extra: YamlObject = {}
     title: record.title,
     status: record.status,
     tags: record.tags,
+    related_parties: record.relatedParties,
     target,
     author: record.author,
     author_ref: authorRefToYaml(record.authorRef),

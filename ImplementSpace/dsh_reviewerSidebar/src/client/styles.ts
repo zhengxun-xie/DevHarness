@@ -169,6 +169,7 @@ const CSS = `
 .dbr-sev-critical { background: rgba(214,58,50,0.1); color: #c3342c; }
 .dbr-pill.dbr-status { background: rgba(0,0,0,0.05); color: var(--dsw-alias-label-secondary, rgba(0,0,0,0.6)); }
 .dbr-pill.dbr-tag { background: transparent; font-style: normal; }
+.dbr-pill.dbr-party { background: rgba(47,127,209,0.10); color: #2567a8; font-style: normal; }
 
 .dbr-empty { color: var(--dsw-alias-label-secondary, rgba(0,0,0,0.5)); text-align: center; padding: 28px 12px; }
 .dbr-empty-hint { font-size: 11.5px; margin-top: 6px; }
@@ -250,6 +251,14 @@ const CSS = `
 .dbr-composer-head strong { flex: 1; font-size: 12.5px; }
 .dbr-field { display: flex; flex-direction: column; gap: 3px; }
 .dbr-field > label { font-size: 11px; color: var(--dsw-alias-label-secondary, rgba(0,0,0,0.55)); }
+.dbr-type-hint {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px; margin-left: 4px;
+  border-radius: 50%; font-size: 10px; font-weight: 700;
+  color: var(--dsw-alias-label-secondary, rgba(0,0,0,0.55));
+  background: var(--dsw-alias-bg-hover, rgba(0,0,0,0.06));
+  cursor: help; user-select: none; vertical-align: middle;
+}
 .dbr-field-row { display: flex; gap: 8px; }
 .dbr-field-row .dbr-field { flex: 1; }
 

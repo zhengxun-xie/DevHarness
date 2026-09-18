@@ -254,6 +254,7 @@ export function ReviewerPanel({ t, useTabInfo }: ReviewerPanelProps): ReactNode 
     comment: string
     proposal: string
     tags: string[]
+    relatedParties: ReviewSummary['relatedParties']
   }): Promise<void> {
     const response = await api.createReview({
       projectId: input.draft.projectId,
@@ -265,6 +266,7 @@ export function ReviewerPanel({ t, useTabInfo }: ReviewerPanelProps): ReactNode 
       comment: input.comment,
       proposal: input.proposal.trim() || undefined,
       tags: input.tags,
+      relatedParties: input.relatedParties,
       documentSha: null,
     })
     notifyChanged(input.draft.document, [response.review.reviewId])

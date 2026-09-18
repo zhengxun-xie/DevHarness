@@ -332,3 +332,32 @@ test('DR-002: failing verification without a reason is refused by the host', asy
   assert.equal(last?.kind, 'status')
   assert.equal(last?.body, 'tests missing', 'the reason lands on the status entry')
 })
+
+test('relatedParties: create normalizes, edit replaces, invalid is refused', async () => {
+  freshProject()
+  const input: CreateReviewRequest = {
+    projectId: PROJECT_ID,
+    document: 'doc.md',
+    target: anchor(),
+    comment: 'needs work',
+    relatedParties: ['human', 'agent'],
+  }
+  const { review } = await store.createReview(input)
+  assert.deepEqual(review.relatedParties, ['human', 'agent'], 'create persists the selected parties')
+
+  const edited = await store.editReview({
+    projectId: PROJECT_ID,
+    reviewId: review.reviewId,
+    relatedParties: ['agent'],
+  })
+  assert.deepEqual(edited.review.relatedParties, ['agent'], 'edit replaces the whole list')
+
+  await assert.rejects(
+    store.editReview({
+      projectId: PROJECT_ID,
+      reviewId: review.reviewId,
+      relatedParties: 'human' as unknown as [],
+    }),
+    (error: unknown) => error instanceof ValidationError,
+  )
+})

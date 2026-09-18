@@ -25,9 +25,10 @@ import { TransitionDialog } from './TransitionDialog.tsx'
 import type { TransitionRequest } from './TransitionDialog.tsx'
 import type { ReviewerKey } from './locales.ts'
 import { AgentPreview } from './AgentPreview.tsx'
-import { REVIEW_TYPES, SEVERITIES, TERMINAL_STATUS_SET, hasAgentCompletionSuggestion, normalizeStatus } from '../protocol.ts'
+import { RELATED_PARTIES, REVIEW_TYPES, SEVERITIES, TERMINAL_STATUS_SET, hasAgentCompletionSuggestion, normalizeStatus } from '../protocol.ts'
 import type {
   AnchorResolution,
+  RelatedParty,
   ReviewRecord,
   ReviewStatus,
   ReviewSummary,
@@ -134,6 +135,7 @@ export function ReviewDetail({
   const [severityDraft, setSeverityDraft] = useState<Severity>('minor')
   const [typeDraft, setTypeDraft] = useState<ReviewType>('suggestion')
   const [tagsDraft, setTagsDraft] = useState('')
+  const [relatedPartiesDraft, setRelatedPartiesDraft] = useState<RelatedParty[]>([])
 
   const markdownLabels: MarkdownLabels = {
     code: { copyLabel: 'Copy', copiedLabel: 'Copied' },
@@ -226,6 +228,7 @@ export function ReviewDetail({
         severity: severityDraft,
         type: typeDraft,
         tags: tagsDraft.split(',').map(tag => tag.trim()).filter(tag => tag !== ''),
+        relatedParties: relatedPartiesDraft,
         expectedSha: sha ?? null,
       })
       setReview(response.review)
@@ -340,6 +343,9 @@ export function ReviewDetail({
           <span className="dbr-pill dbr-status">{statusLabel(t, review.status)}</span>
           <span className="dbr-pill dbr-status">{t(`type.${review.type}`)}</span>
           {review.tags.map(tag => <span key={tag} className="dbr-pill dbr-tag">#{tag}</span>)}
+          {review.relatedParties.map(party => (
+            <span key={party} className="dbr-pill dbr-party">{t(`relatedParty.${party}`)}</span>
+          ))}
         </div>
         <div className="dbr-detail-meta">
           {t('detail.author')}: {review.author} · {formatTime(review.createdAt)}
@@ -381,6 +387,7 @@ export function ReviewDetail({
               setSeverityDraft(review.severity)
               setTypeDraft(review.type)
               setTagsDraft(review.tags.join(', '))
+              setRelatedPartiesDraft(review.relatedParties)
               setCommentDraft(review.comment)
               setProposalDraft(review.proposal)
               setEditingComment(true)
@@ -419,6 +426,23 @@ export function ReviewDetail({
           <div className="dbr-field">
             <label>{t('composer.tags')}（{t('composer.tagsHint')}）</label>
             <input value={tagsDraft} onChange={event => setTagsDraft(event.target.value)} />
+          </div>
+          <div className="dbr-field">
+            <label>{t('composer.relatedParties')}</label>
+            <select
+              multiple
+              size={RELATED_PARTIES.length}
+              value={relatedPartiesDraft}
+              onChange={event => {
+                const selected = Array.from(event.target.selectedOptions)
+                  .map(option => option.value as RelatedParty)
+                setRelatedPartiesDraft(selected)
+              }}
+            >
+              {RELATED_PARTIES.map(value => (
+                <option key={value} value={value}>{t(`relatedParty.${value}`)}</option>
+              ))}
+            </select>
           </div>
           <div className="dbr-field">
             <label>{t('detail.comment')}</label>

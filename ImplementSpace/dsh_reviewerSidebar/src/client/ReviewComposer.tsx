@@ -6,8 +6,8 @@
  */
 import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { REVIEW_TYPES, SEVERITIES, isPointAnchor } from '../protocol.ts'
-import type { ReviewAnchorDraft, ReviewType, Severity } from '../protocol.ts'
+import { REVIEW_TYPES, SEVERITIES, RELATED_PARTIES, isPointAnchor } from '../protocol.ts'
+import type { RelatedParty, ReviewAnchorDraft, ReviewType, Severity } from '../protocol.ts'
 import type { TranslateFunction } from './format.ts'
 import { validateSelection, type SelectionError } from './selection.ts'
 
@@ -27,6 +27,7 @@ export interface ReviewComposerProps {
     comment: string
     proposal: string
     tags: string[]
+    relatedParties: RelatedParty[]
   }) => Promise<void>
   onCancel: () => void
   t: TranslateFunction
@@ -54,6 +55,7 @@ export function ReviewComposer({ draft, onSubmit, onCancel, t }: ReviewComposerP
   const [comment, setComment] = useState('')
   const [proposal, setProposal] = useState('')
   const [tagsText, setTagsText] = useState('')
+  const [relatedParties, setRelatedParties] = useState<RelatedParty[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -95,6 +97,7 @@ export function ReviewComposer({ draft, onSubmit, onCancel, t }: ReviewComposerP
         comment: comment.trim(),
         proposal: proposal.trim(),
         tags: tagsText.split(',').map(tag => tag.trim()).filter(tag => tag !== ''),
+        relatedParties,
       })
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : String(submitError))
@@ -121,10 +124,13 @@ export function ReviewComposer({ draft, onSubmit, onCancel, t }: ReviewComposerP
 
       <div className="dbr-field-row">
         <div className="dbr-field">
-          <label>{t('composer.type')}</label>
+          <label>
+            {t('composer.type')}
+            <span className="dbr-type-hint" title={t('composer.typeHint')}>?</span>
+          </label>
           <select value={type} onChange={event => setType(event.target.value as ReviewType)}>
             {REVIEW_TYPES.map(value => (
-              <option key={value} value={value}>{t(`type.${value}`)}</option>
+              <option key={value} value={value} title={t(`typeDesc.${value}`)}>{t(`type.${value}`)}</option>
             ))}
           </select>
         </div>
@@ -159,6 +165,24 @@ export function ReviewComposer({ draft, onSubmit, onCancel, t }: ReviewComposerP
       <div className="dbr-field">
         <label>{t('composer.tags')}（{t('composer.tagsHint')}）</label>
         <input value={tagsText} onChange={event => setTagsText(event.target.value)} />
+      </div>
+
+      <div className="dbr-field">
+        <label>{t('composer.relatedParties')}</label>
+        <select
+          multiple
+          size={RELATED_PARTIES.length}
+          value={relatedParties}
+          onChange={event => {
+            const selected = Array.from(event.target.selectedOptions)
+              .map(option => option.value as RelatedParty)
+            setRelatedParties(selected)
+          }}
+        >
+          {RELATED_PARTIES.map(value => (
+            <option key={value} value={value}>{t(`relatedParty.${value}`)}</option>
+          ))}
+        </select>
       </div>
 
       {error !== null && <div className="dbr-error">{error}</div>}

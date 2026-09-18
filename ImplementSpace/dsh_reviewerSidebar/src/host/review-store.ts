@@ -36,7 +36,7 @@ import {
   isReopen,
   isTerminal,
 } from './lifecycle.ts'
-import { REVIEW_TYPES, SEVERITIES } from '../protocol.ts'
+import { REVIEW_TYPES, SEVERITIES, normalizeRelatedParties } from '../protocol.ts'
 import type {
   AnchorResolution,
   AppendRequest,
@@ -354,6 +354,7 @@ export class ReviewStore {
       title: input.title?.trim() || null,
       status: 'open',
       tags: Array.isArray(input.tags) ? input.tags.map(String) : [],
+      relatedParties: normalizeRelatedParties(input.relatedParties ?? []),
       target: anchor,
       author: authorRef.id,
       authorRef,
@@ -428,7 +429,8 @@ export class ReviewStore {
     }
     if (input.comment === undefined && input.proposal === undefined
       && input.title === undefined && input.severity === undefined
-      && input.type === undefined && input.tags === undefined) {
+      && input.type === undefined && input.tags === undefined
+      && input.relatedParties === undefined) {
       throw new ValidationError('nothing to edit: provide at least one editable field')
     }
     let wordingEdited = false
@@ -466,6 +468,12 @@ export class ReviewStore {
     if (input.tags !== undefined) {
       if (!Array.isArray(input.tags)) throw new ValidationError('tags must be an array of strings')
       parsed.record.tags = input.tags.map(tag => String(tag).trim()).filter(tag => tag !== '')
+    }
+    if (input.relatedParties !== undefined) {
+      if (!Array.isArray(input.relatedParties)) {
+        throw new ValidationError('relatedParties must be an array of strings')
+      }
+      parsed.record.relatedParties = normalizeRelatedParties(input.relatedParties)
     }
     const at = nowIso()
     if (wordingEdited) {
@@ -1277,6 +1285,7 @@ function toSummary(record: ReviewRecord): ReviewSummary {
     lineStart: record.target.positional.lineStart,
     lineEnd: record.target.positional.lineEnd,
     tags: record.tags,
+    relatedParties: record.relatedParties,
     author: record.author,
     assignee: record.assignee,
     createdAt: record.createdAt,

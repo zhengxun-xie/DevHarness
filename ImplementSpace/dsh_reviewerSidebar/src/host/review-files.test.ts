@@ -180,3 +180,23 @@ test('a decision entry without a type degrades to a comment line, never a fake d
   assert.ok(!line.includes('Decision('), 'must not fabricate a decision type')
   assert.ok(line.endsWith('body text'))
 })
+
+test('related_parties round-trips and drops unknown / duplicate codes', () => {
+  const withParties = LEGACY_FILE.replace(
+    'tags: []',
+    'tags: []\nrelated_parties: [human, agent, bogus, human]',
+  )
+  const { record } = parseReviewFile(withParties)
+
+  // Known codes only, deduped, in declaration order.
+  assert.deepEqual(record.relatedParties, ['human', 'agent'])
+
+  const text = serializeReviewFile(record)
+  assert.match(text, /^related_parties:/m, 'writes the related_parties key')
+  assert.deepEqual(parseReviewFile(text).record.relatedParties, ['human', 'agent'])
+})
+
+test('a record without related_parties parses to an empty list', () => {
+  const { record } = parseReviewFile(LEGACY_FILE)
+  assert.deepEqual(record.relatedParties, [])
+})
