@@ -17,6 +17,7 @@ import type { IncomingMessage, ServerResponse, OutgoingHttpHeaders } from 'node:
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { DEVBUDDY_API_PREFIX } from '../protocol.ts'
 import type {
+  AbsorbTaskCompletionRequest,
   ActivateRequest,
   AppendRequest,
   CreateReviewRequest,
@@ -29,7 +30,7 @@ import type {
 } from '../protocol.ts'
 import type { ReviewStore } from './review-store.ts'
 import { buildAgentContext } from './context-builder.ts'
-import type { AgentDispatcher } from './agent-dispatch.ts'
+import type { AgentDispatcher, TeamDispatchResult } from './agent-dispatch.ts'
 import { NotFoundError } from './projects.ts'
 import { ReviewFileError } from './review-files.ts'
 import { IllegalTransitionError } from './lifecycle.ts'
@@ -123,7 +124,7 @@ function requireString(body: Record<string, unknown>, key: string, res: ServerRe
 }
 
 /**
- * Endpoints (design/04 §2):
+ * Endpoints (design/04 §2 + design/08 §3.2):
  *   GET  /projects
  *   POST /project/activate
  *   GET  /reviews
@@ -135,9 +136,33 @@ function requireString(body: Record<string, unknown>, key: string, res: ServerRe
  *   POST /review/transition
  *   POST /review/remove
  *   GET  /document
+ *   GET  /agent/team
+ *   GET  /agent/team/task-status
+ *   POST /agent/team/absorb
  *   GET  /agent/context
  *   POST /agent/send
  */
+/**
+ * Short human label for a review: its title when set, else the first
+ * non-empty comment line (capped at 40 chars) — used as the team-task
+ * subject tail (design/08 §3.3: "[REV-x] title").
+ */
+function reviewSubjectLabel(
+  store: ReviewStore,
+  projectId: string,
+  reviewId: string,
+  comment: string,
+): string {
+  try {
+    const title = store.getReview(projectId, reviewId).review.title
+    if (title !== null && title !== '') return title
+  } catch {
+    // Fall through to the comment snippet.
+  }
+  const firstLine = comment.split('\n').map(line => line.trim()).find(line => line !== '') ?? ''
+  return firstLine.slice(0, 40) || 'review'
+}
+
 export function reviewerRoutes(store: ReviewStore, dispatcher: AgentDispatcher): WebRoute[] {
   const routes: Array<{ method: string; path: string; handler: Handler }> = [
     {
@@ -313,6 +338,89 @@ export function reviewerRoutes(store: ReviewStore, dispatcher: AgentDispatcher):
     },
     {
       method: 'GET',
+      path: `${DEVBUDDY_API_PREFIX}/agent/team`,
+      // Team roster for the member picker (design/08 §3.2). available:false
+      // covers "no agent-team plugin / no live Lead" — the client hides the
+      // picker and the session dispatch path stays authoritative.
+      handler: (_req, res) => {
+        sendJson(res, 200, dispatcher.teamRoster())
+      },
+    },
+    {
+      method: 'GET',
+      path: `${DEVBUDDY_API_PREFIX}/agent/team/task-status`,
+      // §3.5 loop-back poll: current status of the review's board task.
+      // Reads the record first so a non-task-mode review degrades to a
+      // definitive no-task answer instead of a board read.
+      handler: async (_req, res, url) => {
+        const projectId = url.searchParams.get('projectId') ?? ''
+        const reviewId = url.searchParams.get('reviewId') ?? ''
+        if (projectId === '' || reviewId === '') {
+          sendError(res, 400, 'projectId and reviewId must be non-empty'); return
+        }
+        let teamTaskId: string | null = null
+        try {
+          teamTaskId = store.getReview(projectId, reviewId).review.teamTaskId
+        } catch {
+          sendError(res, statusForError(new Error('not found')), 'review not found'); return
+        }
+        if (teamTaskId === null || teamTaskId === '') {
+          sendJson(res, 200, { available: true, status: null, task: null }); return
+        }
+        const result = dispatcher.teamTaskStatus(teamTaskId)
+        sendJson(res, 200, {
+          available: result.available,
+          status: result.status,
+          task: result.task === null ? null : {
+            id: result.task.id,
+            status: result.task.status,
+            ...(result.task.subject !== undefined ? { subject: result.task.subject } : {}),
+            ...(result.task.ownerName !== undefined ? { ownerName: result.task.ownerName } : {}),
+          },
+        })
+      },
+    },
+    {
+      method: 'POST',
+      path: `${DEVBUDDY_API_PREFIX}/agent/team/absorb`,
+      // §3.5 loop-back write: the teammate marked the board task completed —
+      // absorb it as an agent comment + agentCompletion suggestion. The
+      // route re-checks the board so the client can never inject a
+      // completion the board does not show.
+      handler: async (req, res) => {
+        const body = await readBody(req) as Partial<AbsorbTaskCompletionRequest>
+        if (typeof body.projectId !== 'string' || typeof body.reviewId !== 'string') {
+          sendError(res, 400, 'projectId and reviewId must be strings'); return
+        }
+        let teamTaskId: string | null = null
+        try {
+          teamTaskId = store.getReview(body.projectId, body.reviewId).review.teamTaskId
+        } catch {
+          sendError(res, statusForError(new Error('not found')), 'review not found'); return
+        }
+        if (teamTaskId === null || teamTaskId === '') {
+          sendJson(res, 200, { absorbed: false, reason: 'no-task' }); return
+        }
+        const board = dispatcher.teamTaskStatus(teamTaskId)
+        if (!board.available) {
+          sendJson(res, 200, { absorbed: false, reason: 'unavailable' }); return
+        }
+        if (board.status !== 'completed') {
+          sendJson(res, 200, { absorbed: false, reason: 'not-completed' }); return
+        }
+        try {
+          const result = store.absorbTeamTaskCompletion({
+            projectId: body.projectId,
+            reviewId: body.reviewId,
+          })
+          sendJson(res, 200, { absorbed: result.absorbed, ...(result.absorbed ? {} : { reason: 'already-absorbed' as const }) })
+        } catch (error) {
+          sendError(res, statusForError(error), error instanceof Error ? error.message : String(error))
+        }
+      },
+    },
+    {
+      method: 'GET',
       path: `${DEVBUDDY_API_PREFIX}/agent/context`,
       handler: async (_req, res, url) => {
         const projectId = url.searchParams.get('projectId') ?? ''
@@ -333,6 +441,54 @@ export function reviewerRoutes(store: ReviewStore, dispatcher: AgentDispatcher):
           sendError(res, 400, 'projectId and reviewId must be strings'); return
         }
         const context = await buildAgentContext(body.projectId, body.reviewId, { include: body.include })
+        // Team branch (design/08 §3.2/§3.3): a named member target routes
+        // through the durable Team mailbox and takes precedence over
+        // sessionId. With createTask the dispatch also creates a shared board
+        // task (subject "[REV-x] title", write scope = the target document)
+        // and appends the completion protocol to the instruction.
+        if (typeof body.member === 'string' && body.member !== '') {
+          const subject = `[${body.reviewId}] ${reviewSubjectLabel(store, body.projectId, body.reviewId, context.review.comment)}`
+          let dispatch: TeamDispatchResult
+          let task: { id: string; revision: number } | null = null
+          if (body.createTask === true) {
+            const taskDispatch = await dispatcher.sendToTeamTask({
+              member: body.member,
+              subject,
+              instruction: context.instruction,
+              reviewId: body.reviewId,
+              writeScopes: [context.targetDocument.path],
+              dryRun: body.dryRun === true,
+            })
+            dispatch = taskDispatch
+            task = taskDispatch.task
+          } else {
+            dispatch = await dispatcher.sendToTeam({
+              member: body.member,
+              instruction: context.instruction,
+              dryRun: body.dryRun === true,
+            })
+          }
+          if (dispatch.delivered && dispatch.sessionId !== null) {
+            store.markAgentDispatched({
+              projectId: body.projectId,
+              reviewId: body.reviewId,
+              sessionId: dispatch.sessionId,
+              assigneeMember: body.member,
+              teamTaskId: task !== null ? task.id : null,
+              requestId: null,
+            })
+          }
+          sendJson(res, 200, {
+            context,
+            sessionId: dispatch.sessionId,
+            delivered: dispatch.delivered,
+            member: dispatch.member,
+            queued: dispatch.queued,
+            task,
+            ...(dispatch.delivered ? {} : { fallback: dispatch.reason }),
+          })
+          return
+        }
         const dispatch = await dispatcher.send({
           projectId: body.projectId,
           instruction: context.instruction,

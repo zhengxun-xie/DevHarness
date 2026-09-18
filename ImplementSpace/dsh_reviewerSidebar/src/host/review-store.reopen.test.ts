@@ -361,3 +361,95 @@ test('relatedParties: create normalizes, edit replaces, invalid is refused', asy
     (error: unknown) => error instanceof ValidationError,
   )
 })
+
+test('a task-mode member dispatch records member + board task in one write (design/08 §3.3)', async () => {
+  freshProject()
+
+  const reviewId = await newReview()
+
+  const { review } = store.markAgentDispatched({
+    projectId: PROJECT_ID,
+    reviewId,
+    sessionId: 'teammate-session-9',
+    assigneeMember: 'doc-scout',
+    teamTaskId: 'task-9',
+    requestId: null,
+  })
+  assert.equal(review.status, 'implementing', 'dispatch is the human acceptance')
+  assert.equal(review.assignee, 'teammate-session-9', 'assignee keeps the session id')
+  assert.equal(review.assigneeMember, 'doc-scout')
+  assert.equal(review.teamTaskId, 'task-9')
+
+  // Thread note names both the member and the board task.
+  const entry = review.thread.entries[review.thread.entries.length - 1]
+  assert.ok(entry !== undefined, 'status entry pushed')
+  assert.match(entry.body, /dispatched to teammate doc-scout \(session teammate-session-9\) · team task task-9/)
+
+  // Persisted: a fresh read keeps the attribution.
+  const persisted = read(reviewId)
+  assert.equal(persisted.teamTaskId, 'task-9')
+  assert.equal(persisted.assigneeMember, 'doc-scout')
+  // A re-dispatch is refused while implementing (human-only gate below): the
+  // clearing path (teamTaskId = null on a plain-session dispatch) is covered
+  // by the review-files round-trip test — markAgentDispatched only ever
+  // runs from accepted/open.
+})
+
+test('absorbTeamTaskCompletion turns a completed board task into the suggestion (design/08 §3.5)', async () => {
+  freshProject()
+  const reviewId = await newReview()
+  store.markAgentDispatched({
+    projectId: PROJECT_ID,
+    reviewId,
+    sessionId: 'teammate-session-9',
+    assigneeMember: 'doc-scout',
+    teamTaskId: 'task-9',
+    requestId: null,
+  })
+
+  // First absorb: suggestion + agent comment, review stays implementing.
+  const first = store.absorbTeamTaskCompletion({ projectId: PROJECT_ID, reviewId })
+  assert.equal(first.absorbed, true)
+  assert.equal(first.review.status, 'implementing', 'agents never change review status')
+  assert.ok(first.review.agentCompletion !== null)
+  assert.equal(first.review.agentCompletion.rpcId, 'team-task:task-9')
+  assert.equal(first.review.agentCompletion.sessionId, 'teammate-session-9')
+  const entry = first.review.thread.entries[first.review.thread.entries.length - 1]
+  assert.ok(entry !== undefined, 'agent comment pushed')
+  assert.match(entry.body, /Team task task-9 completed by doc-scout/)
+  assert.equal(entry.author.type, 'agent')
+  assert.equal(entry.author.id, 'doc-scout')
+
+  // Persisted.
+  const persisted = read(reviewId)
+  assert.ok(persisted.agentCompletion !== null)
+
+  // Idempotent: a second absorb keeps the original report untouched.
+  const second = store.absorbTeamTaskCompletion({ projectId: PROJECT_ID, reviewId })
+  assert.equal(second.absorbed, false)
+  assert.equal(
+    read(reviewId).thread.entries.length,
+    persisted.thread.entries.length,
+    'no duplicate comment on re-absorb',
+  )
+
+  // Guard: a plain (non-task-mode) dispatch has nothing to absorb.
+  const plain = await newReview()
+  store.markAgentDispatched({
+    projectId: PROJECT_ID,
+    reviewId: plain,
+    sessionId: 'agent-session-1',
+    requestId: null,
+  })
+  assert.throws(
+    () => store.absorbTeamTaskCompletion({ projectId: PROJECT_ID, reviewId: plain }),
+    (error: unknown) => error instanceof ValidationError,
+  )
+
+  // Guard: an open review (never dispatched) is refused too.
+  const fresh = await newReview()
+  assert.throws(
+    () => store.absorbTeamTaskCompletion({ projectId: PROJECT_ID, reviewId: fresh }),
+    (error: unknown) => error instanceof ValidationError,
+  )
+})

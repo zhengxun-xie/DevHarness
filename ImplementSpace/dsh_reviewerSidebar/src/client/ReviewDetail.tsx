@@ -35,6 +35,7 @@ import type {
   ReviewSummary,
   ReviewType,
   Severity,
+  TeamTaskSummary,
   ThreadEntry,
 } from '../protocol.ts'
 
@@ -137,6 +138,8 @@ export function ReviewDetail({
   const [typeDraft, setTypeDraft] = useState<ReviewType>('suggestion')
   const [tagsDraft, setTagsDraft] = useState('')
   const [relatedPartiesDraft, setRelatedPartiesDraft] = useState<RelatedParty[]>([])
+  // Live shared-board task status for the §3.5 loop-back display line.
+  const [boardStatus, setBoardStatus] = useState<TeamTaskSummary['status'] | null>(null)
 
   const markdownLabels: MarkdownLabels = {
     code: { copyLabel: 'Copy', copiedLabel: 'Copied' },
@@ -163,6 +166,37 @@ export function ReviewDetail({
   useEffect(() => {
     void load()
   }, [load, refreshSignal])
+
+  // §3.5 loop-back (design/08): while a task-mode dispatch is implementing
+  // and no completion suggestion is pending, poll the shared board. When the
+  // teammate marks the task completed, absorb the report (agent comment +
+  // agentCompletion suggestion) and reload — the existing doneHint flow
+  // takes over from there. Poll failures are silent; the next tick retries.
+  const boardWatch = review !== null
+    && review.status === 'implementing'
+    && review.teamTaskId !== null && review.teamTaskId !== ''
+    && !hasAgentCompletionSuggestion(review)
+  useEffect(() => {
+    if (!boardWatch) return
+    let cancelled = false
+    const poll = async (): Promise<void> => {
+      try {
+        const status = await api.agentTaskStatus(projectId, reviewId)
+        if (cancelled) return
+        setBoardStatus(status.status)
+        if (status.status === 'completed') {
+          const absorbed = await api.absorbTeamCompletion({ projectId, reviewId })
+          if (cancelled) return
+          if (absorbed.absorbed) await load()
+        }
+      } catch {
+        // Polling failures are silent — the next tick retries.
+      }
+    }
+    void poll()
+    const timer = window.setInterval(() => { void poll() }, 8000)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [boardWatch, projectId, reviewId, load])
 
   async function runTransition(request: TransitionRequest): Promise<void> {
     if (review === null) return
@@ -302,6 +336,17 @@ export function ReviewDetail({
   const duplicates = siblings.filter(item => item.reviewId !== reviewId)
   const anchor = review.target
 
+  /**
+   * Display-level dedup (user feedback 2026-09-18): the opening comment is
+   * already shown — and edited — in the Comment section above, so the thread
+   * renders only the discussion after it. The data model keeps the opening
+   * entry authoritative in the thread (editReview syncs both); entry 0 is by
+   * construction the opening comment, and the kind check stays defensive.
+   */
+  const threadEntries = review.thread.entries[0]?.kind === 'comment'
+    ? review.thread.entries.slice(1)
+    : review.thread.entries
+
   /** Fire one action spec: a dialog first when it needs fields, else direct. */
   function fireAction(spec: ActionSpec): void {
     if (spec.dialog !== undefined) {
@@ -351,6 +396,16 @@ export function ReviewDetail({
         <div className="dbr-detail-meta">
           {t('detail.author')}: {review.author} · {formatTime(review.createdAt)}
         </div>
+        {review.assigneeMember !== null && review.assigneeMember !== undefined && (
+          <div className="dbr-detail-meta">
+            {t('detail.teammate')}: <b>{review.assigneeMember}</b>
+          </div>
+        )}
+        {review.teamTaskId !== null && review.teamTaskId !== '' && (
+          <div className="dbr-detail-meta">
+            {t('detail.boardTask', { id: review.teamTaskId, status: boardStatus ?? '…' })}
+          </div>
+        )}
         {review.assignee !== null && (
           <div className="dbr-detail-meta">
             {t('detail.agentSession')}: <b>{review.assignee}</b>
@@ -486,7 +541,10 @@ export function ReviewDetail({
 
       <div className="dbr-section-label">{t('detail.thread')}</div>
       <div className="dbr-thread">
-        {review.thread.entries.map(entry => (
+        {threadEntries.length === 0 && (
+          <div className="dbr-detail-meta">{t('detail.threadEmpty')}</div>
+        )}
+        {threadEntries.map(entry => (
           <ThreadItem
             key={entry.id}
             entry={entry}

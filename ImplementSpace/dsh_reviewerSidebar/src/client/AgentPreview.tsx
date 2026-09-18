@@ -3,11 +3,20 @@
  * all seven context sections, include toggles, then POST /agent/send. On
  * delivery failure the server's `fallback` reason is shown alongside a
  * Copy-context button so the prepared instruction can be pasted manually.
+ *
+ * Agent Teams (design/08 §3.2): when a live team roster exists the dialog
+ * also offers a teammate target; choosing one dispatches through the Team
+ * mailbox instead of the session path. No roster / unavailable service —
+ * the picker simply stays hidden (graceful degradation).
+ *
+ * Task mode (design/08 §3.3): with a member selected the dispatch can
+ * additionally create a shared board task carrying the instruction plus a
+ * completion protocol; the resulting task id is reported back.
  */
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { api } from './api.ts'
-import type { AgentContextPayload } from '../protocol.ts'
+import type { AgentContextPayload, TeamRosterResponse } from '../protocol.ts'
 import type { TranslateFunction } from './format.ts'
 
 export interface AgentPreviewProps {
@@ -25,6 +34,16 @@ interface IncludeFlags {
   gitHistory: boolean
 }
 
+interface SendResult {
+  delivered: boolean
+  sessionId: string | null
+  member: string | null
+  queued: boolean
+  /** Board task created by a task-mode dispatch; null otherwise. */
+  task: { id: string } | null
+  fallback?: string
+}
+
 export function AgentPreview({ projectId, reviewId, onClose, t }: AgentPreviewProps): ReactNode {
   const [context, setContext] = useState<AgentContextPayload | null>(null)
   const [loading, setLoading] = useState(true)
@@ -37,9 +56,14 @@ export function AgentPreview({ projectId, reviewId, onClose, t }: AgentPreviewPr
     gitHistory: true,
   })
   const [sending, setSending] = useState(false)
-  const [result, setResult] = useState<{ delivered: boolean; sessionId: string | null; fallback?: string } | null>(null)
+  const [result, setResult] = useState<SendResult | null>(null)
   const [copied, setCopied] = useState(false)
   const [copiedPayload, setCopiedPayload] = useState(false)
+  const [roster, setRoster] = useState<TeamRosterResponse | null>(null)
+  const [member, setMember] = useState('')
+  // Task-board mode (design/08 §3.3): offered only while a member target is
+  // selected; on by default so member dispatches are board-tracked.
+  const [trackTask, setTrackTask] = useState(true)
 
   useEffect(() => {
     let cancelled = false
@@ -50,6 +74,18 @@ export function AgentPreview({ projectId, reviewId, onClose, t }: AgentPreviewPr
     return () => { cancelled = true }
   }, [projectId, reviewId])
 
+  // Team roster for the member picker; a fetch failure is NOT a dialog error
+  // — it just leaves the picker hidden and the session path authoritative.
+  useEffect(() => {
+    let cancelled = false
+    api.agentTeam()
+      .then(payload => { if (!cancelled) setRoster(payload) })
+      .catch(() => { if (!cancelled) setRoster(null) })
+    return () => { cancelled = true }
+  }, [])
+
+  const teammates = (roster?.members ?? []).filter(row => row.role === 'teammate')
+
   async function send(dryRun: boolean): Promise<void> {
     setSending(true)
     setError(null)
@@ -58,10 +94,19 @@ export function AgentPreview({ projectId, reviewId, onClose, t }: AgentPreviewPr
         projectId,
         reviewId,
         sessionId: null,
+        member: member === '' ? null : member,
+        createTask: member === '' ? undefined : trackTask,
         include,
         dryRun,
       })
-      setResult({ delivered: response.delivered, sessionId: response.sessionId, fallback: response.fallback })
+      setResult({
+        delivered: response.delivered,
+        sessionId: response.sessionId,
+        member: response.member ?? null,
+        queued: response.queued === true,
+        task: response.task ?? null,
+        fallback: response.fallback,
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -146,6 +191,31 @@ export function AgentPreview({ projectId, reviewId, onClose, t }: AgentPreviewPr
               </details>
             </div>
 
+            {teammates.length > 0 && (
+              <div className="dbr-agent-member">
+                <span>{t('agent.member')}</span>
+                <select value={member} onChange={event => setMember(event.target.value)}>
+                  <option value="">{t('agent.memberAuto')}</option>
+                  {teammates.map(row => (
+                    <option key={row.id} value={row.name}>
+                      {row.name}（{row.status}）
+                    </option>
+                  ))}
+                </select>
+                {member !== '' && (
+                  <label className="dbr-agent-track">
+                    <input
+                      type="checkbox"
+                      style={{ width: 'auto' }}
+                      checked={trackTask}
+                      onChange={event => setTrackTask(event.target.checked)}
+                    />
+                    {t('agent.trackTask')}
+                  </label>
+                )}
+              </div>
+            )}
+
             <div className="dbr-agent-flags">
               {(Object.keys(include) as Array<keyof IncludeFlags>).map(key => (
                 <label key={key} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -162,7 +232,20 @@ export function AgentPreview({ projectId, reviewId, onClose, t }: AgentPreviewPr
           </>
         )}
 
-        {result !== null && result.delivered && (
+        {result !== null && result.delivered && result.member !== null && (
+          <>
+            <div className="dbr-toast dbr-ok">
+              {t('agent.deliveredMember', {
+                member: result.member,
+                status: result.queued ? t('agent.queued') : t('agent.deliveredNow'),
+              })}
+            </div>
+            {result.task !== null && (
+              <div className="dbr-toast dbr-ok">{t('agent.taskCreated', { id: result.task.id })}</div>
+            )}
+          </>
+        )}
+        {result !== null && result.delivered && result.member === null && (
           <div className="dbr-toast dbr-ok">{t('agent.delivered', { id: result.sessionId ?? '' })}</div>
         )}
         {result !== null && !result.delivered && (

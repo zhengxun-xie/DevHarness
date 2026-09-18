@@ -111,11 +111,14 @@ export type ReviewerKey =
   | 'detail.comment'
   | 'detail.proposal'
   | 'detail.thread'
+  | 'detail.threadEmpty'
   | 'detail.decision'
   | 'detail.duplicatedOf'
   | 'detail.author'
   | 'detail.assignee'
   | 'detail.agentSession'
+  | 'detail.teammate'
+  | 'detail.boardTask'
   | 'detail.replyPlaceholder'
   | 'detail.reply'
   | 'detail.edit'
@@ -159,6 +162,13 @@ export type ReviewerKey =
   | 'agent.confirmSend'
   | 'agent.activeSession'
   | 'agent.delivered'
+  | 'agent.member'
+  | 'agent.memberAuto'
+  | 'agent.deliveredMember'
+  | 'agent.deliveredNow'
+  | 'agent.queued'
+  | 'agent.trackTask'
+  | 'agent.taskCreated'
   | 'agent.fallback'
   | 'agent.copyContext'
   | 'agent.copyPayload'
@@ -273,11 +283,14 @@ const en: Record<ReviewerKey, string> = {
   'detail.comment': 'Comment',
   'detail.proposal': 'Proposal',
   'detail.thread': 'Discussion',
+  'detail.threadEmpty': 'No further discussion yet — the opening comment is shown above.',
   'detail.decision': 'Decision',
   'detail.duplicatedOf': 'Duplicate of',
   'detail.author': 'Author',
   'detail.assignee': 'Assignee',
   'detail.agentSession': 'Agent session',
+  'detail.teammate': 'Team member',
+  'detail.boardTask': 'Team task {id} · {status}',
   'detail.replyPlaceholder': 'Write a reply…',
   'detail.reply': 'Reply',
   'detail.edit': 'Edit',
@@ -321,6 +334,13 @@ const en: Record<ReviewerKey, string> = {
   'agent.confirmSend': 'Confirm & send',
   'agent.activeSession': 'Active session',
   'agent.delivered': 'Delivered to session {id} — review is now implementing.',
+  'agent.member': 'Teammate',
+  'agent.memberAuto': 'Auto (default dispatch)',
+  'agent.deliveredMember': 'Delivered to teammate {member} ({status}) — review is now implementing.',
+  'agent.deliveredNow': 'delivered',
+  'agent.queued': 'queued — arrives when the member wakes',
+  'agent.trackTask': 'Track on the shared team task board',
+  'agent.taskCreated': 'Team task {id} created on the shared board.',
   'agent.fallback': 'Auto-delivery unavailable: {reason}. Copy the context and send it manually.',
   'agent.copyContext': 'Copy context',
   'agent.copyPayload': 'Copy payload',
@@ -436,11 +456,14 @@ const zh: Record<ReviewerKey, string> = {
   'detail.comment': '评论',
   'detail.proposal': '修改建议',
   'detail.thread': '讨论',
+  'detail.threadEmpty': '暂无后续讨论，开场评论见上方「评论」区。',
   'detail.decision': '裁决',
   'detail.duplicatedOf': '重复于',
   'detail.author': '提出人',
   'detail.assignee': '负责人',
   'detail.agentSession': 'Agent 会话',
+  'detail.teammate': '小队成员',
+  'detail.boardTask': '小队任务 {id} · {status}',
   'detail.replyPlaceholder': '写下你的回复…',
   'detail.reply': '回复',
   'detail.edit': '编辑',
@@ -484,6 +507,13 @@ const zh: Record<ReviewerKey, string> = {
   'agent.confirmSend': '确认发送',
   'agent.activeSession': '活动会话',
   'agent.delivered': '已发送至会话 {id}，评审进入实施中。',
+  'agent.member': '负责成员',
+  'agent.memberAuto': '自动（默认派发）',
+  'agent.deliveredMember': '已投递给小队成员 {member}（{status}），评审进入实施中。',
+  'agent.deliveredNow': '已送达',
+  'agent.queued': '已入队，成员唤醒后送达',
+  'agent.trackTask': '同步到小队共享任务板跟踪',
+  'agent.taskCreated': '已上板：小队任务 {id}。',
   'agent.fallback': '无法自动送达（{reason}），请复制 Context 后手动发送。',
   'agent.copyContext': '复制 Context',
   'agent.copyPayload': '复制 Payload',

@@ -200,3 +200,44 @@ test('a record without related_parties parses to an empty list', () => {
   const { record } = parseReviewFile(LEGACY_FILE)
   assert.deepEqual(record.relatedParties, [])
 })
+
+test('assignee_member round-trips and legacy files parse to null (design/08)', () => {
+  // Legacy: no assignee_member key in the file — must degrade to null.
+  const legacy = parseReviewFile(LEGACY_FILE)
+  assert.equal(legacy.record.assigneeMember, null)
+
+  // Dispatched to a teammate: the member name survives a serialize/parse cycle
+  // alongside the plain session-id assignee.
+  legacy.record.assignee = 'session-teammate-1'
+  legacy.record.assigneeMember = 'doc-scout'
+  const text = serializeReviewFile(legacy.record)
+  assert.match(text, /^assignee_member: doc-scout$/m, 'writes the assignee_member key')
+
+  const reparsed = parseReviewFile(text).record
+  assert.equal(reparsed.assignee, 'session-teammate-1')
+  assert.equal(reparsed.assigneeMember, 'doc-scout')
+
+  // A plain-session re-dispatch clears the member attribution.
+  legacy.record.assigneeMember = null
+  const cleared = serializeReviewFile(legacy.record)
+  assert.match(cleared, /^assignee_member: null$/m, 'null round-trips as yaml null')
+  assert.equal(parseReviewFile(cleared).record.assigneeMember, null)
+})
+
+test('team_task_id round-trips and task dispatches thread the store (design/08 §3.3)', () => {
+  // Legacy: no team_task_id key — must degrade to null.
+  const legacy = parseReviewFile(LEGACY_FILE)
+  assert.equal(legacy.record.teamTaskId, null)
+
+  // Task-mode dispatch: the created board task id survives the cycle.
+  legacy.record.teamTaskId = 'task-7'
+  const text = serializeReviewFile(legacy.record)
+  assert.match(text, /^team_task_id: task-7$/m, 'writes the team_task_id key')
+  assert.equal(parseReviewFile(text).record.teamTaskId, 'task-7')
+
+  // A mailbox-only re-dispatch clears it; null round-trips as yaml null.
+  legacy.record.teamTaskId = null
+  const cleared = serializeReviewFile(legacy.record)
+  assert.match(cleared, /^team_task_id: null$/m, 'null round-trips as yaml null')
+  assert.equal(parseReviewFile(cleared).record.teamTaskId, null)
+})

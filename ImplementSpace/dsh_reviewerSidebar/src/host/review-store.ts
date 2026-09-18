@@ -359,6 +359,8 @@ export class ReviewStore {
       author: authorRef.id,
       authorRef,
       assignee: null,
+      assigneeMember: null,
+      teamTaskId: null,
       related: emptyRelated(),
       decision: null,
       decisions: [],
@@ -674,12 +676,17 @@ export class ReviewStore {
    * Sending to an agent IS the human acceptance, so an open review records the
    * accept Decision and ONE status entry straight to implementing — there is no
    * `accepted` stopover the user never clicked (spec §9, refactor §2.3).
-   * assignee and related.agentRuns record the target session id.
+   * assignee and related.agentRuns record the target session id; a Team
+   * teammate dispatch (design/08) additionally records the member name in
+   * assigneeMember (assignee keeps the teammate's underlying session id) and,
+   * in task mode, the shared board task id in teamTaskId (§3.3).
    */
   markAgentDispatched(input: {
     projectId: string
     reviewId: string
     sessionId: string
+    assigneeMember?: string | null
+    teamTaskId?: string | null
     requestId?: string | null
   }): { review: ReviewRecord; sha: string } {
     const { project } = this.useProject(input.projectId)
@@ -721,10 +728,22 @@ export class ReviewStore {
         decisionId: decision.id,
       })
     }
-    pushStatus(status, 'implementing', `dispatched to agent session ${input.sessionId}`)
+    const hasMember = input.assigneeMember !== undefined && input.assigneeMember !== null && input.assigneeMember !== ''
+    const hasTask = input.teamTaskId !== undefined && input.teamTaskId !== null && input.teamTaskId !== ''
+    const dispatchNote = hasMember
+      ? hasTask
+        ? `dispatched to teammate ${input.assigneeMember} (session ${input.sessionId}) · team task ${input.teamTaskId}`
+        : `dispatched to teammate ${input.assigneeMember} (session ${input.sessionId})`
+      : `dispatched to agent session ${input.sessionId}`
+    pushStatus(status, 'implementing', dispatchNote)
     parsed.record.status = 'implementing'
     parsed.record.thread.status = 'implementing'
     parsed.record.assignee = input.sessionId
+    // Fresh attribution every dispatch: a member send records the name, a
+    // plain-session send clears it (assigneeMember mirrors the latest run);
+    // teamTaskId follows the same rule for task-mode dispatches.
+    parsed.record.assigneeMember = input.assigneeMember ?? null
+    parsed.record.teamTaskId = input.teamTaskId ?? null
     if (!parsed.record.related.agentRuns.includes(input.sessionId)) {
       parsed.record.related.agentRuns.push(input.sessionId)
     }
@@ -740,6 +759,60 @@ export class ReviewStore {
       })
     }
     return { review: parsed.record, sha }
+  }
+
+  /**
+   * §3.5 status loop-back (design/08): the shared-board task a task-mode
+   * dispatch created has been marked completed by the teammate. Absorb that
+   * report the same way the session path absorbs agent replies — an agent
+   * comment entry plus the agentCompletion SUGGESTION (never a state change;
+   * the human still verifies, spec §9). Idempotent: a second call while the
+   * suggestion is pending is a no-op.
+   */
+  absorbTeamTaskCompletion(input: {
+    projectId: string
+    reviewId: string
+  }): { review: ReviewRecord; sha: string; absorbed: boolean } {
+    const { project } = this.useProject(input.projectId)
+    const parsed = this.readRecord(project, input.reviewId)
+    const status = parsed.record.status
+    if (status !== 'implementing') {
+      throw new ValidationError(`task completion can only be absorbed while implementing (got ${status})`)
+    }
+    if (parsed.record.teamTaskId === null || parsed.record.teamTaskId === '') {
+      throw new ValidationError('review has no team task to absorb (dispatch was not task-mode)')
+    }
+    if (parsed.record.agentCompletion !== null) {
+      // Suggestion already pending — keep the original report untouched.
+      return { review: parsed.record, sha: parsed.sha, absorbed: false }
+    }
+    const at = nowIso()
+    const taskId = parsed.record.teamTaskId
+    const member = parsed.record.assigneeMember ?? 'teammate'
+    const author: AuthorRef = {
+      type: 'agent',
+      id: member,
+      displayName: member,
+      // No prompt rpcId exists for board-mode runs; the task id is the run.
+      agentRunId: `team-task:${taskId}`,
+    }
+    this.pushEntry(parsed.record, {
+      at,
+      author,
+      kind: 'comment',
+      body: `Team task ${taskId} completed by ${member} — reported via the shared board.`,
+    })
+    parsed.record.agentCompletion = {
+      at,
+      sessionId: parsed.record.assignee ?? member,
+      rpcId: `team-task:${taskId}`,
+      provider: null,
+      model: null,
+    }
+    parsed.record.updatedAt = at
+    const sha = this.writeWithSlug(project.path, parsed.record, parsed.extra)
+    this.scheduleIndexRebuild(project)
+    return { review: parsed.record, sha, absorbed: true }
   }
 
   async removeReview(input: RemoveRequest): Promise<{ removed: true }> {

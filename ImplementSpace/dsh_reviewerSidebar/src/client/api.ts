@@ -7,6 +7,8 @@
  */
 import { DEVBUDDY_API_PREFIX } from '../protocol.ts'
 import type {
+  AbsorbTaskCompletionRequest,
+  AbsorbTaskCompletionResponse,
   ActivateRequest,
   AppendRequest,
   AppendResponse,
@@ -25,6 +27,8 @@ import type {
   RemoveRequest,
   SendToAgentRequest,
   SendToAgentResponse,
+  TeamRosterResponse,
+  TeamTaskStatusResponse,
   TransitionRequest,
   TransitionResponse,
   AgentContextPayload,
@@ -102,6 +106,19 @@ export const api = {
   agentContext(projectId: string, reviewId: string): Promise<AgentContextPayload> {
     const params = new URLSearchParams({ projectId, reviewId })
     return request(`/agent/context?${params.toString()}`)
+  },
+  /** Team roster for the member picker (design/08 §3.2); available:false hides it. */
+  agentTeam(): Promise<TeamRosterResponse> {
+    return request('/agent/team')
+  },
+  /** §3.5 loop-back poll: current status of the review's shared-board task. */
+  agentTaskStatus(projectId: string, reviewId: string): Promise<TeamTaskStatusResponse> {
+    const params = new URLSearchParams({ projectId, reviewId })
+    return request(`/agent/team/task-status?${params.toString()}`)
+  },
+  /** §3.5 loop-back write: absorb a completed board task as the agent report. */
+  absorbTeamCompletion(input: AbsorbTaskCompletionRequest): Promise<AbsorbTaskCompletionResponse> {
+    return post('/agent/team/absorb', input)
   },
   sendToAgent(input: SendToAgentRequest): Promise<SendToAgentResponse & { fallback?: string }> {
     return post('/agent/send', input)

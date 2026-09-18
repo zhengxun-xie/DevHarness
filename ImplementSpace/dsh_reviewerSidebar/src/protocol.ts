@@ -300,7 +300,20 @@ export interface ReviewRecord {
   author: string
   /** Full opening-comment author identity; also the first thread participant. */
   authorRef: AuthorRef
+  /** Target session id of the last agent dispatch (session or teammate). */
   assignee: string | null
+  /**
+   * Team member name when the last dispatch targeted an Agent Teams teammate
+   * (design/08); null for plain-session dispatches. `assignee` keeps holding
+   * the teammate's underlying session id for compatibility.
+   */
+  assigneeMember: string | null
+  /**
+   * Shared task-board task id created by the last task-mode team dispatch
+   * (design/08 §3.3); null when the dispatch was mailbox-only or a plain
+   * session prompt.
+   */
+  teamTaskId: string | null
   related: ReviewRelated
   /**
    * Latest decision — projection of `decisions[decisions.length - 1]`,
@@ -584,6 +597,18 @@ export interface SendToAgentRequest {
   projectId: string
   reviewId: string
   sessionId?: string | null
+  /**
+   * Agent Teams teammate name (design/08). When set the host dispatches
+   * through the Team mailbox instead of the session-controller path; takes
+   * precedence over sessionId.
+   */
+  member?: string | null
+  /**
+   * Task-board mode (design/08 §3.3): when true (with a member target) the
+   * host also creates a shared team task carrying the full instruction and
+   * appends a completion protocol, then notifies the member to claim it.
+   */
+  createTask?: boolean
   include?: {
     relatedDocs?: boolean
     decisions?: boolean
@@ -687,6 +712,63 @@ export interface SendToAgentResponse {
   context: AgentContextPayload
   sessionId: string | null
   delivered: boolean
+  /** Team member name when the dispatch targeted a teammate (design/08). */
+  member?: string | null
+  /** true when the Team mailbox retained the message (member not live). */
+  queued?: boolean
+  /** Created board task when the dispatch ran in task mode (design/08 §3.3). */
+  task?: { id: string; revision: number } | null
+}
+
+// ---------------------------------------------------------------------------
+// Agent Teams roster (design/08 §3.2): feeds the client member picker.
+// ---------------------------------------------------------------------------
+
+/** Roster row mirrored from the platform TeamMemberView. */
+export interface TeamMemberSummary {
+  id: string
+  name: string
+  role: 'lead' | 'teammate'
+  status: 'running' | 'idle' | 'inactive' | 'provisioning' | 'failed'
+  description?: string
+  model?: string
+}
+
+/** GET /agent/team response; available:false hides the member picker. */
+export interface TeamRosterResponse {
+  available: boolean
+  leadSessionId: string | null
+  members: TeamMemberSummary[]
+}
+
+/** Task-board status row mirrored for the §3.5 loop-back display. */
+export interface TeamTaskSummary {
+  id: string
+  status: 'pending' | 'in_progress' | 'completed' | 'deleted'
+  subject?: string
+  ownerName?: string
+}
+
+/** GET /agent/team/task-status response (§3.5 loop-back poll). */
+export interface TeamTaskStatusResponse {
+  /** false when the team service / live Lead is unavailable — stop polling. */
+  available: boolean
+  /** null when the task id is not on any reachable board. */
+  status: TeamTaskSummary['status'] | null
+  task: TeamTaskSummary | null
+}
+
+/** POST /agent/team/absorb request: absorb a completed board task report. */
+export interface AbsorbTaskCompletionRequest {
+  projectId: string
+  reviewId: string
+}
+
+/** POST /agent/team/absorb response. */
+export interface AbsorbTaskCompletionResponse {
+  absorbed: boolean
+  /** Degrade reason when the board was not reachable or the task not completed. */
+  reason?: 'unavailable' | 'no-task' | 'not-completed' | 'already-absorbed'
 }
 
 // ---------------------------------------------------------------------------

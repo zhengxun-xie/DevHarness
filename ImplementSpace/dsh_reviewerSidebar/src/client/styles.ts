@@ -423,6 +423,16 @@ const CSS = `
   font-family: var(--font-mono, var(--dsw-font-family-mono, monospace)); font-size: 11px;
 }
 .dbr-agent-flags { display: flex; flex-direction: column; gap: 2px; margin: 4px 0; }
+/* teammate target picker (design/08); hidden client-side when roster is empty */
+.dbr-agent-member { display: flex; align-items: center; gap: 8px; margin: 4px 0 6px; font-size: 11.5px; }
+.dbr-agent-member select {
+  flex: 1; min-width: 0; font-size: 11.5px; padding: 2px 6px;
+  background: var(--dsw-alias-bg-layer-2, rgba(0,0,0,0.04));
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0,0,0,0.08));
+  border-radius: 6px; color: inherit;
+}
+/* task-board toggle (design/08 §3.3): sits beside the member select */
+.dbr-agent-track { flex-shrink: 0; white-space: nowrap; display: flex; gap: 4px; align-items: center; }
 .dbr-toast { font-size: 11.5px; padding: 5px 9px; border-radius: 6px; margin: 6px 0;
   background: rgba(0,0,0,0.06); color: var(--dsw-alias-label-secondary, rgba(0,0,0,0.65)); }
 .dbr-toast.dbr-ok { background: rgba(46,139,97,0.12); color: #25724d; }

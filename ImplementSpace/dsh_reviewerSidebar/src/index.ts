@@ -18,7 +18,12 @@ import {
   workspaceInfoProvider,
   type WorkspaceRegistryLike,
 } from './host/workspaces.ts'
-import { AgentDispatcher, type SessionControllerLike } from './host/agent-dispatch.ts'
+import {
+  AgentDispatcher,
+  type AgentRegistryLike,
+  type SessionControllerLike,
+  type TeamServiceLike,
+} from './host/agent-dispatch.ts'
 import { registerSessionFeed } from './host/session-feed.ts'
 
 export const name = 'dsh-devbuddy-reviewer'
@@ -32,11 +37,15 @@ export function apply(ctx: Context): void {
   const store = new ReviewStore()
   let workspaceRegistry: WorkspaceRegistryLike | null = null
   let sessionController: SessionControllerLike | null = null
+  let agentTeams: TeamServiceLike | null = null
+  let agentRegistry: AgentRegistryLike | null = null
 
   // Platform services are attached lazily/structurally (same style as
   // dsh-taskboard): if a service is absent, the dependent feature degrades
   // (workspace link stays null / agent send returns delivered:false) rather
-  // than failing plugin activation.
+  // than failing plugin activation. The Agent Teams branch degrades the same
+  // way (design/08 §4): without 'agentTeams'/'agents' the member picker
+  // disappears and the session path stays authoritative.
   ctx.inject(['workspaceRegistry'], (wsCtx) => {
     const registry = (wsCtx as unknown as { workspaceRegistry: WorkspaceRegistryLike }).workspaceRegistry
     workspaceRegistry = registry
@@ -47,8 +56,21 @@ export function apply(ctx: Context): void {
     sessionController = (sessionCtx as unknown as { sessionController: SessionControllerLike }).sessionController
   })
 
+  ctx.inject(['agentTeams'], (teamCtx) => {
+    agentTeams = (teamCtx as unknown as { agentTeams: TeamServiceLike }).agentTeams
+  })
+
+  ctx.inject(['agents'], (agentsCtx) => {
+    agentRegistry = (agentsCtx as unknown as { agents: AgentRegistryLike }).agents
+  })
+
   ctx.effect(() => {
-    const dispatcher = new AgentDispatcher(() => sessionController, () => workspaceRegistry)
+    const dispatcher = new AgentDispatcher(
+      () => sessionController,
+      () => workspaceRegistry,
+      () => agentTeams,
+      () => agentRegistry,
+    )
     const disposers = reviewerRoutes(store, dispatcher).map(route => ctx.webServer.register(route))
     // Correlate dispatched runs (prompt requestId -> user/message rpcId ->
     // turn assistant text -> agent-authored review thread comment).
