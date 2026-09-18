@@ -344,7 +344,7 @@ export function ReviewDetail({
           <span className="dbr-pill dbr-status">{statusLabel(t, review.status)}</span>
           <span className="dbr-pill dbr-status">{t(`type.${review.type}`)}</span>
           {review.tags.map(tag => <span key={tag} className="dbr-pill dbr-tag">#{tag}</span>)}
-          {review.relatedParties.map(party => (
+          {(review.relatedParties ?? []).map(party => (
             <span key={party} className="dbr-pill dbr-party">{t(`relatedParty.${party}`)}</span>
           ))}
         </div>
@@ -388,7 +388,7 @@ export function ReviewDetail({
               setSeverityDraft(review.severity)
               setTypeDraft(review.type)
               setTagsDraft(review.tags.join(', '))
-              setRelatedPartiesDraft(review.relatedParties)
+              setRelatedPartiesDraft(review.relatedParties ?? [])
               setCommentDraft(review.comment)
               setProposalDraft(review.proposal)
               setEditingComment(true)
