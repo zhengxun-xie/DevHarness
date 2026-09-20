@@ -1,26 +1,8 @@
 {
   "version": 1,
   "projectId": "p_6a127e8f",
-  "updatedAt": "2026-09-18T05:48:32.099Z",
+  "updatedAt": "2026-09-18T06:04:00.634Z",
   "reviews": [
-    {
-      "reviewId": "REV-0005",
-      "number": 2,
-      "document": "ProjectInfo.md",
-      "type": "question",
-      "severity": "minor",
-      "status": "open",
-      "title": "TODO：当前尚未配置远程仓库地址...",
-      "section": "ProjectInfo",
-      "lineStart": 17,
-      "lineEnd": 17,
-      "tags": [],
-      "relatedParties": [],
-      "author": "reviewer",
-      "assignee": null,
-      "createdAt": "2026-09-18T05:43:34.396Z",
-      "updatedAt": "2026-09-18T05:48:31.898Z"
-    },
     {
       "reviewId": "REV-0004",
       "number": 1,

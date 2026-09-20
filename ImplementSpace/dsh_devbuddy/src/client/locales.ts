@@ -14,9 +14,9 @@ export type DevBuddyKey =
   | 'project.cancel'
   | 'project.remove'
   | 'project.removeConfirm'
-  | 'node.preview'
+  | 'node.richtext'
   | 'node.collapse'
-  | 'node.edit'
+  | 'node.source'
   | 'node.save'
   | 'node.saved'
   | 'node.discard'
@@ -28,6 +28,22 @@ export type DevBuddyKey =
   | 'node.reviewBadgeDrifted'
   | 'node.addReview'
   | 'node.closeReview'
+  | 'toolbar.paragraph'
+  | 'toolbar.bold'
+  | 'toolbar.italic'
+  | 'toolbar.strike'
+  | 'toolbar.code'
+  | 'toolbar.bulletList'
+  | 'toolbar.orderedList'
+  | 'toolbar.taskList'
+  | 'toolbar.blockquote'
+  | 'toolbar.codeBlock'
+  | 'toolbar.link'
+  | 'toolbar.unlink'
+  | 'toolbar.linkPrompt'
+  | 'toolbar.table'
+  | 'toolbar.undo'
+  | 'toolbar.redo'
   | 'workspace.label'
   | 'workspace.unlinked'
   | 'workspace.sessions'
@@ -56,20 +72,36 @@ const en: Record<DevBuddyKey, string> = {
   'project.cancel': 'Cancel',
   'project.remove': 'Remove',
   'project.removeConfirm': 'Remove this project from DevBuddy? Files on disk are kept.',
-  'node.preview': 'Preview',
+  'node.richtext': 'Rich text',
   'node.collapse': 'Collapse',
-  'node.edit': 'Edit',
+  'node.source': 'Source',
   'node.save': 'Save',
   'node.saved': 'Saved',
   'node.discard': 'Discard',
-  'node.unsaved': 'Unsaved changes — preview shows the current draft',
+  'node.unsaved': 'Unsaved changes — the current draft is not saved yet',
   'node.notFound': 'File not created yet',
   'node.updated': 'Updated',
-  'node.empty': 'Empty file — click Edit to start.',
+  'node.empty': 'Empty file — click Rich text to start.',
   'node.reviewBadgeTitle': 'Review {number} ({id}) — click to open',
   'node.reviewBadgeDrifted': 'anchor drifted',
   'node.addReview': '💬 Add comment',
   'node.closeReview': 'Close',
+  'toolbar.paragraph': 'Text',
+  'toolbar.bold': 'Bold',
+  'toolbar.italic': 'Italic',
+  'toolbar.strike': 'Strikethrough',
+  'toolbar.code': 'Inline code',
+  'toolbar.bulletList': 'Bullet list',
+  'toolbar.orderedList': 'Ordered list',
+  'toolbar.taskList': 'Task list',
+  'toolbar.blockquote': 'Quote',
+  'toolbar.codeBlock': 'Code block',
+  'toolbar.link': 'Add link',
+  'toolbar.unlink': 'Remove link',
+  'toolbar.linkPrompt': 'Link URL',
+  'toolbar.table': 'Insert table',
+  'toolbar.undo': 'Undo',
+  'toolbar.redo': 'Redo',
   'workspace.label': 'Workspace',
   'workspace.unlinked': 'No linked workspace — no DSH session has run in this directory yet',
   'workspace.sessions': 'sessions',
@@ -99,20 +131,36 @@ const zh: Record<DevBuddyKey, string> = {
   'project.cancel': '取消',
   'project.remove': '移除',
   'project.removeConfirm': '从 DevBuddy 移除该项目？磁盘上的文件不会被删除。',
-  'node.preview': '预览',
+  'node.richtext': '富文本',
   'node.collapse': '收起',
-  'node.edit': '编辑',
+  'node.source': '源码',
   'node.save': '保存',
   'node.saved': '已保存',
   'node.discard': '放弃',
-  'node.unsaved': '有未保存的修改 —— 预览展示的是当前草稿',
+  'node.unsaved': '有未保存的修改 —— 当前草稿尚未保存',
   'node.notFound': '文件尚未创建',
   'node.updated': '已更新',
-  'node.empty': '文件为空 —— 点击「编辑」开始填写。',
+  'node.empty': '文件为空 —— 点击「富文本」开始填写。',
   'node.reviewBadgeTitle': '评审 {number}（{id}）—— 点击打开',
   'node.reviewBadgeDrifted': '锚点已漂移',
   'node.addReview': '💬 添加评论',
   'node.closeReview': '关闭',
+  'toolbar.paragraph': '正文',
+  'toolbar.bold': '加粗',
+  'toolbar.italic': '斜体',
+  'toolbar.strike': '删除线',
+  'toolbar.code': '行内代码',
+  'toolbar.bulletList': '无序列表',
+  'toolbar.orderedList': '有序列表',
+  'toolbar.taskList': '任务列表',
+  'toolbar.blockquote': '引用',
+  'toolbar.codeBlock': '代码块',
+  'toolbar.link': '添加链接',
+  'toolbar.unlink': '移除链接',
+  'toolbar.linkPrompt': '链接地址',
+  'toolbar.table': '插入表格',
+  'toolbar.undo': '撤销',
+  'toolbar.redo': '重做',
   'workspace.label': '工作区',
   'workspace.unlinked': '未关联工作区 —— 该目录还没有运行过 DSH 会话',
   'workspace.sessions': '个会话',

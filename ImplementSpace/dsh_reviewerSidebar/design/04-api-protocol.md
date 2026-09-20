@@ -2,7 +2,7 @@
 
 ## 1. 约定
 
-- Base URL：`/api/devbuddy`（左栏 [protocol.ts](../../dsh_leftSidebar/src/protocol.ts) 注释中已为右栏预留此前缀，与 `/api/devbuddy-left` 区分，两插件共存）；
+- Base URL：`/api/devbuddy`（左栏 [protocol.ts](../../dsh_devbuddy/src/protocol.ts) 注释中已为右栏预留此前缀，与 `/api/devbuddy-left` 区分，两插件共存）；
 - 全部为 **exact 路由**，JSON over HTTP，`cache-control: no-store`；
 - 信任围栏与左栏一致：loopback 地址 + localhost Host + 同源 Origin + 拒绝跨站 `Sec-Fetch-Site`；
 - 请求体上限 4 MiB；

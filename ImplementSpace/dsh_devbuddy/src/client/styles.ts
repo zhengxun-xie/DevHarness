@@ -396,23 +396,77 @@ html[data-devbuddy-active] [data-side='rightbar'][data-dragging]::after {
 .dbl-dot[data-state="present"] { background: #3aa675; }
 .dbl-node-meta { font-size: 11.5px; opacity: 0.6; font-family: var(--font-mono, monospace); font-weight: 400; }
 .dbl-node-desc { font-size: 12.5px; opacity: 0.75; }
-/* Markdown preview renders frameless directly on the card surface — parity
-   with the sidebar file editor's preview (.editorMd: flex 1, transparent,
-   no border/background/height cap). It flows with the document and the outer
-   .dbl-scroll owns the scrollbar; the primitives' .markdown stylesheet owns
-   typography. Only the empty/missing hint face remains. */
-.dbl-node-md {
-  /* no box, no height cap, no internal scroll — outer panel scrolls */
+/* Rich-text (WYSIWYG) surface: Tiptap's .ProseMirror rendered frameless on
+   the card — same surface philosophy as the source textarea (.dbl-editor-ta:
+   transparent, borderless, auto-growing, outer panel scrolls). The editor
+   content carries the same font/padding metrics as the textarea so the two
+   surfaces look identical when switching. min-height gives a fresh document
+   its blank editing area (parity with .dbl-editor's 9-line floor). */
+.dbl-rt-editor {
   position: relative;
+  display: block; width: 100%; box-sizing: border-box;
+  min-height: 200px;
 }
-.dbl-node-md[data-empty="true"] { opacity: 0.55; font-style: italic; }
-/* Unsaved-draft banner rendered above the preview. */
-.dbl-node-md-note {
-  margin: 0 0 8px; font-size: 11.5px; font-style: normal;
-  color: #b5791a;
+.dbl-rt-editor .ProseMirror {
+  font-family: var(--dsw-font-family, inherit);
+  font-size: 13px; line-height: 1.7; letter-spacing: normal;
+  padding: 0 12px 10px; margin: 0; border: 0; outline: none;
+  min-height: 200px;
 }
-/* --- preview/edit chrome, mirroring the sidebar file editor -------------
-   Collapse glyph + segmented [预览|编辑] mode switch (always visible, active
+/* Inline review-mark decorations inherit static positioning (the textarea
+   overlay used absolute rects; in ProseMirror they are inline spans, so the
+   absolute + rounded defaults from .dbl-rv-hl must be overridden). */
+.dbl-rt-editor .ProseMirror .dbl-rv-hl {
+  position: static; border-radius: 0;
+}
+/* Tiptap placeholder (empty doc) stays invisible — the min-height gives the
+   blank area, matching the source surface's empty textarea. */
+.dbl-rt-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: ""; color: transparent; float: left; pointer-events: none; height: 0;
+}
+/* --- rich-text persistent formatting toolbar ----------------------------
+   Compact single row pinned to the top of the editor surface; horizontally
+   scrollable when the sidebar is too narrow (scrollbar hidden). Follows the
+   theme through the dsw alias vars. */
+.dbl-rt-toolbar {
+  display: flex; align-items: center; flex-wrap: nowrap; gap: 2px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border-color, rgba(0,0,0,0.12));
+  background: var(--dsw-alias-bg-2, rgba(0,0,0,0.02));
+  overflow-x: auto; scrollbar-width: none;
+}
+.dbl-rt-toolbar::-webkit-scrollbar { display: none; }
+.dbl-rt-tgroup { display: inline-flex; align-items: center; gap: 1px; flex: 0 0 auto; }
+.dbl-rt-tsep {
+  width: 1px; height: 16px; flex: 0 0 auto; margin: 0 2px;
+  background: var(--border-color, rgba(0,0,0,0.12));
+}
+.dbl-rt-tbtn {
+  min-width: 24px; height: 24px; padding: 0 4px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 5px; background: transparent; color: inherit;
+  font-size: 12px; line-height: 1; cursor: pointer;
+}
+.dbl-rt-tbtn:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.06)); }
+.dbl-rt-tbtn[data-active="true"] {
+  background: var(--dsw-alias-interactive-bg-active, rgba(91,141,239,0.16));
+  color: var(--dsw-alias-link, #3b6fd4);
+}
+.dbl-rt-tbtn:disabled { opacity: .35; cursor: default; }
+.dbl-rt-tbtn:disabled:hover { background: transparent; }
+.dbl-rt-tselect {
+  height: 24px; flex: 0 0 auto; max-width: 86px;
+  font-size: 12px; color: inherit;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.16)); border-radius: 5px;
+  background: transparent; padding: 0 2px;
+}
+.dbl-rt-g { font-size: 12px; line-height: 1; }
+.dbl-rt-g-bold { font-weight: 700; }
+.dbl-rt-g-italic { font-style: italic; }
+.dbl-rt-g-strike { text-decoration: line-through; }
+.dbl-rt-g-code { font-family: var(--font-mono, monospace); font-size: 11px; }
+/* --- richtext/source chrome, mirroring the sidebar file editor -----------
+   Collapse glyph + segmented [富文本|源码] mode switch (always visible, active
    segment highlighted) + dirty dot + discard/save text buttons. */
 .dbl-collapse-btn {
   border: none; background: none; padding: 0 2px; cursor: pointer;
@@ -585,6 +639,12 @@ html[data-devbuddy-active] [data-side='rightbar'][data-dragging]::after {
 }
 .dbl-rv-edge-start { box-shadow: inset 2px 0 0 0 var(--dbl-rv-pipe); border-top-left-radius: 2px; border-bottom-left-radius: 2px; }
 .dbl-rv-edge-end { box-shadow: inset -2px 0 0 0 var(--dbl-rv-pipe); border-top-right-radius: 2px; border-bottom-right-radius: 2px; }
+/* Rich-text anchors: both edge bars in one declaration (a single PM span
+   carries the mark, so separate start/end box-shadow rules would clobber
+   each other). Mirrors the source surface's two 2px "|" bars. */
+.dbl-rv-edges {
+  box-shadow: inset 2px 0 0 0 var(--dbl-rv-pipe), inset -2px 0 0 0 var(--dbl-rv-pipe);
+}
 .dbl-rv-anchor-lost {
   background: rgba(0,0,0,0.05);
   --dbl-rv-pipe: var(--dsw-alias-label-tertiary, rgba(0,0,0,0.45));
@@ -609,6 +669,18 @@ html[data-devbuddy-active] [data-side='rightbar'][data-dragging]::after {
 /* Chips on a point ride the bar's right edge. */
 .dbl-rv-point > .dbl-rv-anchor-nums {
   top: -9px; left: 2px; right: auto;
+}
+/* Rich-text widget host for range anchors: zero-width inline block that
+   provides the positioning context the nums bundle is absolute-anchored to,
+   so the chip rides the selection's end edge (above the text) instead of
+   escaping to the editor root's top-right corner. */
+.dbl-rv-chip-host {
+  display: inline-block; position: relative;
+  width: 0; height: 1em; vertical-align: text-bottom;
+  pointer-events: none;
+}
+.dbl-rv-chip-host > .dbl-rv-anchor-nums {
+  top: -9px; left: 0; right: auto;
 }
 .dbl-rv-anchor-nums {
   position: absolute; top: -9px; right: 2px;

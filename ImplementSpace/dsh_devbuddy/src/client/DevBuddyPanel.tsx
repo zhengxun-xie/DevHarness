@@ -136,9 +136,9 @@ export function DevBuddyPanel({ t, sidebarRight, sessions, panelController }: De
   }, [refresh])
 
   const nodeLabels = {
-    preview: t('node.preview'),
+    richtext: t('node.richtext'),
     collapse: t('node.collapse'),
-    edit: t('node.edit'),
+    source: t('node.source'),
     save: t('node.save'),
     saved: t('node.saved'),
     discard: t('node.discard'),
@@ -146,14 +146,28 @@ export function DevBuddyPanel({ t, sidebarRight, sessions, panelController }: De
     notFound: t('node.notFound'),
     empty: t('node.empty'),
     updated: t('node.updated'),
-    // Markdown primitive chrome rides the shell's shared common vocabulary.
-    markdownCopy: t('copy'),
-    markdownCopied: t('copied'),
-    markdownFootnotes: t('markdown.footnotes'),
     reviewBadgeTitle: t('node.reviewBadgeTitle'),
     reviewBadgeDrifted: t('node.reviewBadgeDrifted'),
     addReview: t('node.addReview'),
     closeReview: t('node.closeReview'),
+    toolbar: {
+      paragraph: t('toolbar.paragraph'),
+      bold: t('toolbar.bold'),
+      italic: t('toolbar.italic'),
+      strike: t('toolbar.strike'),
+      code: t('toolbar.code'),
+      bulletList: t('toolbar.bulletList'),
+      orderedList: t('toolbar.orderedList'),
+      taskList: t('toolbar.taskList'),
+      blockquote: t('toolbar.blockquote'),
+      codeBlock: t('toolbar.codeBlock'),
+      link: t('toolbar.link'),
+      unlink: t('toolbar.unlink'),
+      linkPrompt: t('toolbar.linkPrompt'),
+      table: t('toolbar.table'),
+      undo: t('toolbar.undo'),
+      redo: t('toolbar.redo'),
+    },
   }
 
   return (
