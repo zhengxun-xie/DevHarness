@@ -7,8 +7,8 @@
  * this module only reads.
  */
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
-import { dirname, isAbsolute, relative, resolve } from 'node:path'
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { dshHome } from './dsh-home.ts'
 import { readJson } from './json-store.ts'
 import type { DevBuddyRegistry, ProjectRecord, WorkspaceInfo } from '../protocol.ts'
@@ -98,6 +98,62 @@ export function readDocument(projectPath: string, document: string): DocumentRea
   if (!existsSync(file)) return { exists: false, content: '', sha: null }
   const content = readFileSync(file, 'utf8')
   return { exists: true, content, sha: sha256(content) }
+}
+
+/** Directories never scanned when listing project documents. */
+const SKIP_DIRS: ReadonlySet<string> = new Set([
+  '.git',
+  '.devbuddy',
+  'node_modules',
+  '.DS_Store',
+])
+
+const MARKDOWN_EXT = /\.(md|markdown)$/i
+
+/**
+ * Recursively list every markdown document under the project directory,
+ * returning project-relative paths (POSIX separators, matching the
+ * ReviewSummary.document convention). Skips VCS/dependency/internal dirs;
+ * symlinks are followed but containment is re-asserted per entry so a
+ * symlink escaping the project cannot leak a path outside it.
+ */
+export function listMarkdownDocuments(projectPath: string): string[] {
+  const root = resolve(projectPath)
+  const found: string[] = []
+  if (!existsSync(root)) return found
+  const walk = (dir: string): void => {
+    let entries: import('node:fs').Dirent[]
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (SKIP_DIRS.has(entry.name)) continue
+        walk(join(dir, entry.name))
+        continue
+      }
+      if (!entry.isFile()) continue
+      if (!MARKDOWN_EXT.test(entry.name)) continue
+      const file = join(dir, entry.name)
+      try {
+        assertInside(root, file)
+      } catch {
+        continue // symlink escaping the project: exclude
+      }
+      // Skip files we cannot stat (broken symlink) or that are not real files.
+      try {
+        if (!statSync(file).isFile()) continue
+      } catch {
+        continue
+      }
+      found.push(relative(root, file).split('\\').join('/'))
+    }
+  }
+  walk(root)
+  found.sort((a, b) => a.localeCompare(b))
+  return found
 }
 
 export interface WorkspaceProvider {

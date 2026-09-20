@@ -593,6 +593,19 @@ export interface DocumentResponse {
   reviews: DocumentReviewAnchor[]
 }
 
+/** One markdown document discovered by the project-directory scan. */
+export interface DocFileEntry {
+  /** Path relative to the project directory; matches ReviewSummary.document. */
+  path: string
+  /** Display title: the file basename without the .md/.markdown extension. */
+  title: string
+}
+
+/** GET /docs response: every .md/.markdown under the project directory. */
+export interface ListDocsResponse {
+  documents: DocFileEntry[]
+}
+
 export interface SendToAgentRequest {
   projectId: string
   reviewId: string

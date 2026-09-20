@@ -42,6 +42,9 @@ export interface DocumentReviewViewProps {
   refreshSignal: number
   /** When set, selections rebind this review's anchor instead of composing. */
   rebindFor?: string | null
+  /** Focus line from a doc-ref link click; scroll to it on mount. */
+  focusLineStart?: number
+  focusLineEnd?: number
   onBack: () => void
   onOpenReview: (reviewId: string) => void
   onCompose: (draft: ComposerDraft) => void
@@ -84,6 +87,8 @@ export function DocumentReviewView({
   initialReviewId,
   refreshSignal,
   rebindFor = null,
+  focusLineStart,
+  focusLineEnd,
   onBack,
   onOpenReview,
   onCompose,
@@ -232,6 +237,16 @@ export function DocumentReviewView({
     }, 0)
     return () => window.clearTimeout(timer)
   }, [initialReviewId, loading, doc])
+
+  // Scroll to the line referenced by a doc-ref link click.
+  useEffect(() => {
+    if (focusLineStart === undefined || loading || doc === null) return
+    const timer = window.setTimeout(() => {
+      const el = bodyRef.current?.querySelector(`[data-line="${focusLineStart}"]`)
+      el?.scrollIntoView({ block: 'center' })
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [focusLineStart, loading, doc])
 
   // Close the popover on any outside click.
   useEffect(() => {
@@ -390,6 +405,7 @@ export function DocumentReviewView({
             return (
               <div
                 key={lineNo}
+                data-line={lineNo}
                 className={`dbr-doc-line${headingLines.has(lineNo) ? ' dbr-h-heading' : ''}`}
               >
                 <span className="dbr-doc-gutter">

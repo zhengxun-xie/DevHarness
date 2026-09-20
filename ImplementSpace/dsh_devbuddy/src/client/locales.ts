@@ -42,8 +42,18 @@ export type DevBuddyKey =
   | 'toolbar.unlink'
   | 'toolbar.linkPrompt'
   | 'toolbar.table'
+  | 'toolbar.drawing'
   | 'toolbar.undo'
   | 'toolbar.redo'
+  | 'draw.title'
+  | 'draw.close'
+  | 'draw.saving'
+  | 'draw.loadError'
+  | 'draw.saveError'
+  | 'draw.edit'
+  | 'draw.empty'
+  | 'draw.missing'
+  | 'draw.error'
   | 'workspace.label'
   | 'workspace.unlinked'
   | 'workspace.sessions'
@@ -100,8 +110,18 @@ const en: Record<DevBuddyKey, string> = {
   'toolbar.unlink': 'Remove link',
   'toolbar.linkPrompt': 'Link URL',
   'toolbar.table': 'Insert table',
+  'toolbar.drawing': 'Insert drawing',
   'toolbar.undo': 'Undo',
   'toolbar.redo': 'Redo',
+  'draw.title': 'Drawing',
+  'draw.close': 'Done',
+  'draw.saving': 'Saving…',
+  'draw.loadError': 'Could not load the drawing file',
+  'draw.saveError': 'Could not save the drawing',
+  'draw.edit': 'Click to edit the drawing',
+  'draw.empty': 'Empty drawing — click to draw',
+  'draw.missing': 'Drawing file missing — click to recreate',
+  'draw.error': 'Drawing unavailable',
   'workspace.label': 'Workspace',
   'workspace.unlinked': 'No linked workspace — no DSH session has run in this directory yet',
   'workspace.sessions': 'sessions',
@@ -159,8 +179,18 @@ const zh: Record<DevBuddyKey, string> = {
   'toolbar.unlink': '移除链接',
   'toolbar.linkPrompt': '链接地址',
   'toolbar.table': '插入表格',
+  'toolbar.drawing': '插入画板',
   'toolbar.undo': '撤销',
   'toolbar.redo': '重做',
+  'draw.title': '画板',
+  'draw.close': '完成',
+  'draw.saving': '正在保存…',
+  'draw.loadError': '无法加载画板文件',
+  'draw.saveError': '画板保存失败',
+  'draw.edit': '点击编辑画板',
+  'draw.empty': '画板为空 —— 点击开始绘制',
+  'draw.missing': '画板文件缺失 —— 点击重建',
+  'draw.error': '画板不可用',
   'workspace.label': '工作区',
   'workspace.unlinked': '未关联工作区 —— 该目录还没有运行过 DSH 会话',
   'workspace.sessions': '个会话',

@@ -8,7 +8,7 @@
  * which subsequent writes echo back. 409 surfaces the mandated
  * "content changed, refresh and retry" message.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { MarkdownText, type MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import { api } from './api.ts'
@@ -26,9 +26,12 @@ import type { TransitionRequest } from './TransitionDialog.tsx'
 import type { ReviewerKey } from './locales.ts'
 import { AgentPreview } from './AgentPreview.tsx'
 import { RelatedPartySelect } from './RelatedPartySelect.tsx'
+import { DocRefPicker } from './DocRefPicker.tsx'
+import { DOC_REF_SCHEME, parseDocRef } from './doc-ref.ts'
 import { REVIEW_TYPES, SEVERITIES, TERMINAL_STATUS_SET, hasAgentCompletionSuggestion, normalizeStatus } from '../protocol.ts'
 import type {
   AnchorResolution,
+  DocTreeNode,
   RelatedParty,
   ReviewRecord,
   ReviewStatus,
@@ -92,10 +95,17 @@ export interface ReviewDetailProps {
   reviewId: string
   /** All current-project summaries, used to populate the duplicate picker. */
   siblings: ReviewSummary[]
+  /** Document tree from the left panel; feeds the DocRefPicker in replies. */
+  docTree: DocTreeNode[] | null
   refreshSignal: number
   onBack: () => void
   onChanged: (document: string) => void
-  onOpenDocument: (document: string, reviewId: string | null) => void
+  onOpenDocument: (
+    document: string,
+    reviewId: string | null,
+    focusLineStart?: number,
+    focusLineEnd?: number,
+  ) => void
   /** Start rebind mode: pick a fresh anchor for this review in the document. */
   onRebind: (document: string, reviewId: string) => void
   t: TranslateFunction
@@ -113,6 +123,7 @@ export function ReviewDetail({
   projectId,
   reviewId,
   siblings,
+  docTree,
   refreshSignal,
   onBack,
   onChanged,
@@ -128,11 +139,16 @@ export function ReviewDetail({
   const [reply, setReply] = useState('')
   const [busy, setBusy] = useState(false)
   const [dialog, setDialog] = useState<DialogState | null>(null)
+  const [replyRefOpen, setReplyRefOpen] = useState(false)
+  const [commentRefOpen, setCommentRefOpen] = useState(false)
+  const replyRef = useRef<HTMLTextAreaElement | null>(null)
+  const replyCursorRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 })
+  const commentEditRef = useRef<HTMLTextAreaElement | null>(null)
+  const commentCursorRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 })
   const [agentOpen, setAgentOpen] = useState(false)
   const [conflict, setConflict] = useState(false)
   const [editingComment, setEditingComment] = useState(false)
   const [commentDraft, setCommentDraft] = useState('')
-  const [proposalDraft, setProposalDraft] = useState('')
   const [titleDraft, setTitleDraft] = useState('')
   const [severityDraft, setSeverityDraft] = useState<Severity>('minor')
   const [typeDraft, setTypeDraft] = useState<ReviewType>('suggestion')
@@ -258,7 +274,8 @@ export function ReviewDetail({
         projectId,
         reviewId,
         comment,
-        proposal: proposalDraft.trim(),
+        // The comment/proposal boxes are merged (user feedback 2026-09-20):
+        // omit proposal so edits never touch an existing review's proposal.
         title: titleDraft.trim(),
         severity: severityDraft,
         type: typeDraft,
@@ -318,6 +335,59 @@ export function ReviewDetail({
     }
   }
 
+  /** Intercept clicks on `devbuddy-ref://` links inside rendered MarkdownText. */
+  function handleRefClick(event: React.MouseEvent): void {
+    if (!(event.target instanceof Element)) return
+    const anchor = event.target.closest('a')
+    if (anchor === null) return
+    const href = anchor.getAttribute('href')
+    if (href === null || !href.startsWith(DOC_REF_SCHEME)) return
+    event.preventDefault()
+    const ref = parseDocRef(href)
+    if (ref === null) return
+    onOpenDocument(ref.document, null, ref.lineStart, ref.lineEnd)
+  }
+
+  function openReplyRefPicker(): void {
+    const ta = replyRef.current
+    if (ta !== null) replyCursorRef.current = { start: ta.selectionStart, end: ta.selectionEnd }
+    setReplyRefOpen(true)
+  }
+
+  function insertReplyRef(markdown: string): void {
+    const { start, end } = replyCursorRef.current
+    setReply(reply.slice(0, start) + markdown + reply.slice(end))
+    setReplyRefOpen(false)
+    requestAnimationFrame(() => {
+      const ta = replyRef.current
+      if (ta !== null) {
+        ta.focus()
+        const pos = start + markdown.length
+        ta.setSelectionRange(pos, pos)
+      }
+    })
+  }
+
+  function openCommentRefPicker(): void {
+    const ta = commentEditRef.current
+    if (ta !== null) commentCursorRef.current = { start: ta.selectionStart, end: ta.selectionEnd }
+    setCommentRefOpen(true)
+  }
+
+  function insertCommentRef(markdown: string): void {
+    const { start, end } = commentCursorRef.current
+    setCommentDraft(commentDraft.slice(0, start) + markdown + commentDraft.slice(end))
+    setCommentRefOpen(false)
+    requestAnimationFrame(() => {
+      const ta = commentEditRef.current
+      if (ta !== null) {
+        ta.focus()
+        const pos = start + markdown.length
+        ta.setSelectionRange(pos, pos)
+      }
+    })
+  }
+
   if (loading) return <div className="dbr-loading">{t('panel.loading')}</div>
   if (review === null) {
     return (
@@ -357,7 +427,7 @@ export function ReviewDetail({
   }
 
   return (
-    <div>
+    <div onClickCapture={handleRefClick}>
       <div className="dbr-crumbs">
         <button type="button" onClick={onBack}>← {t('detail.back')}</button>
         <span className="dbr-detail-id">
@@ -445,7 +515,6 @@ export function ReviewDetail({
               setTagsDraft(review.tags.join(', '))
               setRelatedPartiesDraft(review.relatedParties ?? [])
               setCommentDraft(review.comment)
-              setProposalDraft(review.proposal)
               setEditingComment(true)
             }}
           >{t('detail.edit')}</button>
@@ -488,20 +557,31 @@ export function ReviewDetail({
             <input value={tagsDraft} onChange={event => setTagsDraft(event.target.value)} />
           </div>
           <div className="dbr-field">
-            <label>{t('detail.comment')}</label>
+            <div className="dbr-field-label-row">
+              <label>{t('detail.comment')}</label>
+              <button
+                type="button"
+                className="dbr-ref-btn"
+                onMouseDown={event => event.preventDefault()}
+                onClick={openCommentRefPicker}
+                disabled={busy}
+              >{t('refDoc.button')}</button>
+            </div>
             <textarea
+              ref={commentEditRef}
               rows={6}
               value={commentDraft}
               onChange={event => setCommentDraft(event.target.value)}
             />
-          </div>
-          <div className="dbr-field">
-            <label>{t('detail.proposal')}</label>
-            <textarea
-              rows={3}
-              value={proposalDraft}
-              onChange={event => setProposalDraft(event.target.value)}
-            />
+            {commentRefOpen && (
+              <DocRefPicker
+                projectId={projectId}
+                docTree={docTree}
+                onInsert={insertCommentRef}
+                onCancel={() => setCommentRefOpen(false)}
+                t={t}
+              />
+            )}
           </div>
           <div className="dbr-edit-actions">
             <button
@@ -551,6 +631,7 @@ export function ReviewDetail({
             canEdit={!terminal}
             busy={busy}
             onSaveEdit={saveEntryEdit}
+            markdownLabels={markdownLabels}
             t={t}
           />
         ))}
@@ -559,14 +640,33 @@ export function ReviewDetail({
       {terminal
         ? <div className="dbr-detail-meta" style={{ marginTop: 8 }}>{t('detail.terminalReadonly')}</div>
         : (
-            <div className="dbr-reply-row">
-              <textarea
-                value={reply}
-                placeholder={t('detail.replyPlaceholder')}
-                onChange={event => setReply(event.target.value)}
-              />
-              <button type="button" className="dbr-primary" disabled={busy || reply.trim() === ''}
-                onClick={() => void appendReply()}>{t('detail.reply')}</button>
+            <div className="dbr-reply-area">
+              <div className="dbr-reply-row">
+                <textarea
+                  ref={replyRef}
+                  value={reply}
+                  placeholder={t('detail.replyPlaceholder')}
+                  onChange={event => setReply(event.target.value)}
+                />
+                <button type="button" className="dbr-primary" disabled={busy || reply.trim() === ''}
+                  onClick={() => void appendReply()}>{t('detail.reply')}</button>
+              </div>
+              <button
+                type="button"
+                className="dbr-ref-btn"
+                onMouseDown={event => event.preventDefault()}
+                onClick={openReplyRefPicker}
+                disabled={busy}
+              >{t('refDoc.button')}</button>
+              {replyRefOpen && (
+                <DocRefPicker
+                  projectId={projectId}
+                  docTree={docTree}
+                  onInsert={insertReplyRef}
+                  onCancel={() => setReplyRefOpen(false)}
+                  t={t}
+                />
+              )}
             </div>
           )}
 
@@ -681,11 +781,12 @@ function statusText(entry: ThreadEntry, t: TranslateFunction): string {
   return parts.join(' ')
 }
 
-function ThreadItem({ entry, canEdit, busy, onSaveEdit, t }: {
+function ThreadItem({ entry, canEdit, busy, onSaveEdit, markdownLabels, t }: {
   entry: ThreadEntry
   canEdit: boolean
   busy: boolean
   onSaveEdit: (entryId: string, body: string) => Promise<boolean>
+  markdownLabels: MarkdownLabels
   t: TranslateFunction
 }): ReactNode {
   const [editing, setEditing] = useState(false)
@@ -752,7 +853,9 @@ function ThreadItem({ entry, canEdit, busy, onSaveEdit, t }: {
         </div>
       ) : entry.kind === 'status'
         ? <div>{statusText(entry, t)}{entry.body ? ` · ${entry.body}` : ''}</div>
-        : <div className="dbr-entry-body">{entry.body}</div>}
+        : entry.kind === 'comment'
+          ? <div className="dbr-entry-body"><MarkdownText text={entry.body} labels={markdownLabels} /></div>
+          : <div className="dbr-entry-body">{entry.body}</div>}
     </div>
   )
 }

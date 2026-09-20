@@ -4,13 +4,14 @@
  * draft. Selection validity (empty / whitespace / >4000) gates submission;
  * the host re-validates and computes the fingerprint.
  */
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { REVIEW_TYPES, SEVERITIES, isPointAnchor } from '../protocol.ts'
-import type { RelatedParty, ReviewAnchorDraft, ReviewType, Severity } from '../protocol.ts'
+import type { DocTreeNode, RelatedParty, ReviewAnchorDraft, ReviewType, Severity } from '../protocol.ts'
 import type { TranslateFunction } from './format.ts'
 import { validateSelection, type SelectionError } from './selection.ts'
 import { RelatedPartySelect } from './RelatedPartySelect.tsx'
+import { DocRefPicker } from './DocRefPicker.tsx'
 
 export interface ComposerDraft {
   projectId: string
@@ -20,6 +21,7 @@ export interface ComposerDraft {
 
 export interface ReviewComposerProps {
   draft: ComposerDraft
+  docTree: DocTreeNode[] | null
   onSubmit: (input: {
     draft: ComposerDraft
     type: ReviewType
@@ -34,7 +36,7 @@ export interface ReviewComposerProps {
   t: TranslateFunction
 }
 
-export function ReviewComposer({ draft, onSubmit, onCancel, t }: ReviewComposerProps): ReactNode {
+export function ReviewComposer({ draft, docTree, onSubmit, onCancel, t }: ReviewComposerProps): ReactNode {
   const [type, setType] = useState<ReviewType>('suggestion')
   const [severity, setSeverity] = useState<Severity>('minor')
   // 默认标题：取选区文本（连续空白折叠）前 15 个字，超出追加 ...。
@@ -54,11 +56,13 @@ export function ReviewComposer({ draft, onSubmit, onCancel, t }: ReviewComposerP
     return count < chars.length ? `${chars.slice(0, count).join('')}...` : text
   })
   const [comment, setComment] = useState('')
-  const [proposal, setProposal] = useState('')
   const [tagsText, setTagsText] = useState('')
   const [relatedParties, setRelatedParties] = useState<RelatedParty[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [refPickerOpen, setRefPickerOpen] = useState(false)
+  const commentRef = useRef<HTMLTextAreaElement | null>(null)
+  const cursorRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 })
 
   // Zero-length (point) anchors bypass the non-empty selection gate: they
   // are anchored at a caret position via the quick-action CARET handshake.
@@ -96,7 +100,9 @@ export function ReviewComposer({ draft, onSubmit, onCancel, t }: ReviewComposerP
         severity,
         title: title.trim(),
         comment: comment.trim(),
-        proposal: proposal.trim(),
+        // The comment/proposal boxes are merged (user feedback 2026-09-20):
+        // one comment box only; new reviews always carry an empty proposal.
+        proposal: '',
         tags: tagsText.split(',').map(tag => tag.trim()).filter(tag => tag !== ''),
         relatedParties,
       })
@@ -104,6 +110,27 @@ export function ReviewComposer({ draft, onSubmit, onCancel, t }: ReviewComposerP
       setError(submitError instanceof Error ? submitError.message : String(submitError))
       setSubmitting(false)
     }
+  }
+
+  function openRefPicker(): void {
+    const ta = commentRef.current
+    if (ta !== null) cursorRef.current = { start: ta.selectionStart, end: ta.selectionEnd }
+    setRefPickerOpen(true)
+  }
+
+  function insertDocRef(markdown: string): void {
+    const { start, end } = cursorRef.current
+    const next = comment.slice(0, start) + markdown + comment.slice(end)
+    setComment(next)
+    setRefPickerOpen(false)
+    requestAnimationFrame(() => {
+      const ta = commentRef.current
+      if (ta !== null) {
+        ta.focus()
+        const pos = start + markdown.length
+        ta.setSelectionRange(pos, pos)
+      }
+    })
   }
 
   const path = draft.anchor.structural.headingPath.join(' / ')
@@ -156,15 +183,32 @@ export function ReviewComposer({ draft, onSubmit, onCancel, t }: ReviewComposerP
       </div>
 
       <div className="dbr-field">
-        <label>{t('composer.comment')}</label>
-        <textarea value={comment} placeholder={t('composer.commentPlaceholder')}
-          onChange={event => setComment(event.target.value)} autoFocus />
-      </div>
-
-      <div className="dbr-field">
-        <label>{t('composer.proposal')}</label>
-        <textarea value={proposal} placeholder={t('composer.proposalPlaceholder')}
-          onChange={event => setProposal(event.target.value)} />
+        <div className="dbr-field-label-row">
+          <label>{t('composer.comment')}</label>
+          <button
+            type="button"
+            className="dbr-ref-btn"
+            onMouseDown={event => event.preventDefault()}
+            onClick={openRefPicker}
+            disabled={submitting}
+          >{t('refDoc.button')}</button>
+        </div>
+        <textarea
+          ref={commentRef}
+          value={comment}
+          placeholder={t('composer.commentPlaceholder')}
+          onChange={event => setComment(event.target.value)}
+          autoFocus
+        />
+        {refPickerOpen && (
+          <DocRefPicker
+            projectId={draft.projectId}
+            docTree={docTree}
+            onInsert={insertDocRef}
+            onCancel={() => setRefPickerOpen(false)}
+            t={t}
+          />
+        )}
       </div>
 
       <div className="dbr-field">

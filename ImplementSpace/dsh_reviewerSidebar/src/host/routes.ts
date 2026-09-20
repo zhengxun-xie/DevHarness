@@ -338,6 +338,17 @@ export function reviewerRoutes(store: ReviewStore, dispatcher: AgentDispatcher):
     },
     {
       method: 'GET',
+      path: `${DEVBUDDY_API_PREFIX}/docs`,
+      handler: (_req, res, url) => {
+        const projectId = url.searchParams.get('projectId') ?? ''
+        if (projectId === '') {
+          sendError(res, 400, 'projectId is required'); return
+        }
+        sendJson(res, 200, store.listDocuments(projectId))
+      },
+    },
+    {
+      method: 'GET',
       path: `${DEVBUDDY_API_PREFIX}/agent/team`,
       // Team roster for the member picker (design/08 §3.2). available:false
       // covers "no agent-team plugin / no live Lead" — the client hides the

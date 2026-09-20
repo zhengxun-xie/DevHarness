@@ -18,6 +18,9 @@
  *   GET  /api/devbuddy-left/workspaces               -> WorkspaceInfo[]
  *   POST /api/devbuddy-left/project/bind             { id, workspaceId: string | null }
  *        -> State
+ *   GET  /api/devbuddy-left/drawing                  ?projectId&src -> DrawingView
+ *   POST /api/devbuddy-left/drawing                  { projectId, src, content }
+ *   POST /api/devbuddy-left/drawing/create           { projectId } -> { src }
  */
 
 export const DEVBUDDY_API_PREFIX = '/api/devbuddy-left'
@@ -143,4 +146,30 @@ export interface BindProjectRequest {
 /** Generic error body. */
 export interface ErrorBody {
   error: string
+}
+
+/**
+ * One embedded drawing (Excalidraw scene file). Scene JSON lives in a
+ * separate `.excalidraw` file next to / under the project; the markdown
+ * document references it by a project-relative src through a
+ * `![[diagram-1.excalidraw]]` line. Missing files report exists=false.
+ */
+export interface DrawingView {
+  projectId: string
+  /** Project-relative path (validated to stay inside the project). */
+  src: string
+  exists: boolean
+  /** Scene JSON text; '' when the file is missing. */
+  content: string
+}
+
+/** POST body for writing a drawing scene. */
+export interface WriteDrawingRequest {
+  src: string
+  content: string
+}
+
+/** Result of POST /drawing/create: the allocated project-relative path. */
+export interface CreateDrawingResult {
+  src: string
 }

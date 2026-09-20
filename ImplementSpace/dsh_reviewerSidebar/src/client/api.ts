@@ -20,6 +20,7 @@ import type {
   EditThreadEntryRequest,
   EditThreadEntryResponse,
   GetReviewResponse,
+  ListDocsResponse,
   ListReviewsResponse,
   ProjectsResponse,
   ReanchorRequest,
@@ -102,6 +103,11 @@ export const api = {
   getDocument(projectId: string, path: string): Promise<DocumentResponse> {
     const params = new URLSearchParams({ projectId, path })
     return request(`/document?${params.toString()}`)
+  },
+  /** List every markdown file under the project dir (doc-ref picker "browse"). */
+  listDocuments(projectId: string): Promise<ListDocsResponse> {
+    const params = new URLSearchParams({ projectId })
+    return request(`/docs?${params.toString()}`)
   },
   agentContext(projectId: string, reviewId: string): Promise<AgentContextPayload> {
     const params = new URLSearchParams({ projectId, reviewId })

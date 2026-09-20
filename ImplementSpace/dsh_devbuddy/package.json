@@ -60,6 +60,7 @@
     "react": "^18.2.0"
   },
   "dependencies": {
+    "@excalidraw/excalidraw": "^0.18.1",
     "@tiptap/core": "^3.31.3",
     "@tiptap/extension-link": "^3.31.3",
     "@tiptap/extension-list": "^3.31.3",

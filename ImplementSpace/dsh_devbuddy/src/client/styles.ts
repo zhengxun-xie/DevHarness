@@ -731,6 +731,65 @@ html[data-devbuddy-active] [data-side='rightbar'][data-dragging]::after {
   flex-direction: column; gap: 12px; align-items: center; padding: 48px;
 }
 .dbl-loading { margin: auto; opacity: 0.6; font-size: 13px; }
+
+/* --- Embedded drawing blocks (Excalidraw references) --- */
+.dbl-draw {
+  position: relative;
+  display: flex; align-items: center; gap: 8px;
+  margin: 6px 0; padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-line, rgba(0,0,0,0.12));
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base, #fff);
+  cursor: pointer; user-select: none;
+  transition: border-color 0.15s ease;
+}
+.dbl-draw:hover { border-color: var(--dsw-alias-content-brand, #3b82f6); }
+.dbl-draw:focus-visible { outline: 2px solid var(--dsw-alias-content-brand, #3b82f6); outline-offset: 1px; }
+.dbl-draw[data-selected="true"] {
+  border-color: var(--dsw-alias-content-brand, #3b82f6);
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.22);
+}
+.dbl-draw-glyph { font-size: 14px; opacity: 0.65; flex: none; }
+.dbl-draw-label { font-size: 12.5px; opacity: 0.75; }
+.dbl-draw-name {
+  margin-left: auto; font-size: 11px; opacity: 0.5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dbl-draw[data-state="ready"] { flex-direction: column; align-items: stretch; gap: 4px; padding: 6px; }
+.dbl-draw[data-state="ready"] .dbl-draw-glyph { display: none; }
+.dbl-draw[data-state="ready"] .dbl-draw-label { display: none; }
+.dbl-draw[data-state="ready"] .dbl-draw-name { margin-left: 0; text-align: center; }
+.dbl-draw-img {
+  display: block; margin: 0 auto;
+  max-height: 160px; max-width: 100%;
+  border-radius: 4px; pointer-events: none;
+}
+
+/* --- Excalidraw modal editor --- */
+.dbl-draw-modal-backdrop {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,0.45);
+  display: flex; align-items: center; justify-content: center;
+}
+.dbl-draw-modal {
+  width: min(1100px, 92vw); height: min(760px, 88vh);
+  background: var(--dsw-alias-bg-overlay, #fff);
+  border-radius: 12px; overflow: hidden;
+  display: flex; flex-direction: column;
+  box-shadow: 0 18px 60px rgba(0,0,0,0.35);
+}
+.dbl-draw-modal-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 14px; flex: none;
+  border-bottom: 1px solid var(--dsw-alias-line, rgba(0,0,0,0.1));
+}
+.dbl-draw-modal-title { font-size: 13px; font-weight: 600; white-space: nowrap; }
+.dbl-draw-modal-notice { font-size: 12px; opacity: 0.65; }
+.dbl-draw-modal-head .dbl-linkbtn { margin-left: auto; flex: none; }
+.dbl-draw-modal-body { position: relative; flex: 1; min-height: 0; }
+.dbl-draw-modal-body .excalidraw { position: absolute; inset: 0; }
+.dbl-draw-modal-fatal { padding: 24px; font-size: 13px; opacity: 0.7; }
 `
 
 let injected = false

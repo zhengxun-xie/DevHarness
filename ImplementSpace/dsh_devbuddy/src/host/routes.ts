@@ -11,12 +11,18 @@
  * Because the exact table keys on literal pathnames, resource ids ride the
  * query string (GET) or the JSON body (POST), not path segments.
  */
+import { readFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse, OutgoingHttpHeaders } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import { DEVBUDDY_API_PREFIX, type BindProjectRequest, type WriteNodeRequest } from '../protocol.ts'
+import {
+  DEVBUDDY_API_PREFIX,
+  type BindProjectRequest,
+  type WriteDrawingRequest,
+  type WriteNodeRequest,
+} from '../protocol.ts'
 import type { DevBuddyStore } from './store.ts'
 
-const MAX_BODY_BYTES = 4 * 1024 * 1024 // markdown nodes can be large; 4 MiB cap
+const MAX_BODY_BYTES = 16 * 1024 * 1024 // excalidraw scenes may embed images; 16 MiB cap
 
 const JSON_HEADERS: OutgoingHttpHeaders = {
   'content-type': 'application/json; charset=utf-8',
@@ -93,8 +99,12 @@ type Handler = (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<
  *   POST /api/devbuddy-left/node                    { projectId, nodeId, content, expectedSha? }
  *   GET  /api/devbuddy-left/workspaces
  *   POST /api/devbuddy-left/project/bind            { id, workspaceId: string | null }
+ *   GET  /api/devbuddy-left/drawing                  ?projectId&src
+ *   POST /api/devbuddy-left/drawing                  { projectId, src, content }
+ *   POST /api/devbuddy-left/drawing/create           { projectId } -> { src }
+ *   GET  /api/devbuddy-left/excalidraw-bundle.js      -> text/javascript
  */
-export function devbuddyRoutes(store: DevBuddyStore): WebRoute[] {
+export function devbuddyRoutes(store: DevBuddyStore, excalidrawBundlePath: string): WebRoute[] {
   const routes: Array<{ method: string; path: string; handler: Handler }> = [
     {
       method: 'GET',
@@ -177,6 +187,52 @@ export function devbuddyRoutes(store: DevBuddyStore): WebRoute[] {
           body.content,
           body.expectedSha ?? null,
         ))
+      },
+    },
+    {
+      method: 'GET',
+      path: `${DEVBUDDY_API_PREFIX}/drawing`,
+      handler: (_req, res, url) => {
+        const projectId = url.searchParams.get('projectId') ?? ''
+        const src = url.searchParams.get('src') ?? ''
+        sendJson(res, 200, store.readDrawingView(projectId, src))
+      },
+    },
+    {
+      method: 'POST',
+      path: `${DEVBUDDY_API_PREFIX}/drawing`,
+      handler: async (req, res) => {
+        const body = await readBody(req) as Partial<WriteDrawingRequest & { projectId?: unknown }>
+        if (typeof body.projectId !== 'string') { sendError(res, 400, 'projectId must be a string'); return }
+        if (typeof body.src !== 'string') { sendError(res, 400, 'src must be a string'); return }
+        if (typeof body.content !== 'string') { sendError(res, 400, 'content must be a string'); return }
+        store.writeDrawingView(body.projectId, body.src, body.content)
+        sendJson(res, 200, { ok: true })
+      },
+    },
+    {
+      method: 'POST',
+      path: `${DEVBUDDY_API_PREFIX}/drawing/create`,
+      handler: async (req, res) => {
+        const body = await readBody(req) as { projectId?: unknown }
+        if (typeof body.projectId !== 'string') { sendError(res, 400, 'projectId must be a string'); return }
+        sendJson(res, 200, store.createDrawingView(body.projectId))
+      },
+    },
+    {
+      method: 'GET',
+      path: `${DEVBUDDY_API_PREFIX}/excalidraw-bundle.js`,
+      handler: (_req, res) => {
+        try {
+          const code = readFileSync(excalidrawBundlePath, 'utf8')
+          res.writeHead(200, {
+            'content-type': 'application/javascript; charset=utf-8',
+            'cache-control': 'public, max-age=3600',
+          })
+          res.end(code)
+        } catch {
+          sendError(res, 404, 'excalidraw bundle not found')
+        }
       },
     },
   ]

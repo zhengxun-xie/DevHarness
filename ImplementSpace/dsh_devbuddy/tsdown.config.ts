@@ -1,4 +1,34 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import type { UserConfig } from 'tsdown'
+
+/** Absolute path of the production Excalidraw stylesheet. */
+const EXCALIDRAW_CSS_FILE = fileURLToPath(new URL(
+  './node_modules/@excalidraw/excalidraw/dist/prod/index.css',
+  import.meta.url,
+))
+
+/** Virtual module id (no `.css` suffix → tsdown's css guard never sees it). */
+const EXCALIDRAW_CSS_VIRTUAL = '\0excalidraw-index-css.js'
+
+/**
+ * Bundle plugin that turns the side-effect-only
+ * `import '@excalidraw/excalidraw/index.css'` into a JS module that
+ * default-exports the stylesheet text. The DSH module loader serves a
+ * single client.js with no extra assets, so the CSS cannot ship as a
+ * separate style.css; the editor injects it through a <style> tag at mount.
+ */
+const excalidrawCssInlinePlugin = {
+  name: 'excalidraw-css-inline',
+  resolveId(source: string): string | null {
+    return source === '@excalidraw/excalidraw/index.css' ? EXCALIDRAW_CSS_VIRTUAL : null
+  },
+  load(id: string): string | null {
+    if (id !== EXCALIDRAW_CSS_VIRTUAL) return null
+    const css = readFileSync(EXCALIDRAW_CSS_FILE, 'utf8')
+    return `export default ${JSON.stringify(css)};`
+  },
+}
 
 /**
  * DevBuddy LEFT-sidebar standalone plugin build — two artifacts from one
@@ -74,4 +104,37 @@ const client: UserConfig = {
   },
 }
 
-export default [host, client]
+/**
+ * Separate Excalidraw bundle — built as a self-contained CJS file that the
+ * host serves at `GET /api/devbuddy-left/excalidraw-bundle.js`.  The main
+ * client.js fetches and evaluates this on demand (when a drawing is
+ * opened), keeping the plugin's activation path free of Excalidraw's
+ * dynamic imports (which previously required `inlineDynamicImports` on the
+ * main client and broke the cordis slot-reconcile during boot).
+ *
+ * React / react-dom / jsx-runtime are externalized (resolved at load time
+ * via the loader's synthetic `require`).  All Excalidraw internal dynamic
+ * imports (locales, mermaid, …) are inlined into this single file.
+ */
+const excalidrawBundle: UserConfig = {
+  name: `${PLUGIN_ID}/excalidraw-bundle`,
+  entry: { 'excalidraw-bundle': 'src/client/excalidraw-bundle-entry.ts' },
+  outDir: 'lib',
+  format: ['cjs'],
+  platform: 'browser',
+  target: 'es2022',
+  plugins: [excalidrawCssInlinePlugin],
+  dts: false,
+  clean: false,
+  sourcemap: false,
+  deps: {
+    neverBundle: id => CLIENT_EXTERNALS.has(id),
+    alwaysBundle: id => !CLIENT_EXTERNALS.has(id),
+  },
+  outputOptions: {
+    entryFileNames: 'excalidraw-bundle.js',
+    inlineDynamicImports: true,
+  },
+}
+
+export default [host, client, excalidrawBundle]

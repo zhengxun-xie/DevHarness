@@ -30,8 +30,10 @@
  * Selection → add-review bubble:
  *   - `editor.on('selectionUpdate')` (debounced 200ms) reads the PM selection,
  *     reverse-maps it to LF offsets via `pmPosToLf`, validates the slice, and
- *     positions a `dbl-rv-fab` bubble over the selection. Selections inside
- *     codeBlock, IME composition, and collapsed carets are skipped.
+ *     positions a `dbl-rv-fab` bubble over the selection. Collapsed carets,
+ *     selections inside codeBlock, and IME composition are skipped — a
+ *     collapsed caret uses the Reviewer's quick-action "add comment" button
+ *     via the caret-provider handshake instead.
  *   - The bubble reuses the existing `dbl-rv-fab` styles; its "add review"
  *     action hands off to the parent's `onAddReview` (which opens the
  *     Reviewer composer with the pending anchor).
@@ -64,6 +66,13 @@ import {
   pmPosToLf,
   type MarkHandlers,
 } from './doc-alignment.ts'
+import { DrawingBlock } from './drawing-block.ts'
+import {
+  DrawingBlockContext,
+  type DrawingBlockContextValue,
+} from './DrawingBlockView.tsx'
+import { ExcalidrawModal } from './ExcalidrawModal.tsx'
+import { api } from './api.ts'
 import {
   ReviewMarksExtension,
   refreshReviewMarksModel,
@@ -93,11 +102,24 @@ export interface RichTextToolbarLabels {
   unlink: string
   linkPrompt: string
   table: string
+  drawing: string
   undo: string
   redo: string
+  /** Excalidraw modal + inline block copy. */
+  drawTitle: string
+  drawClose: string
+  drawSaving: string
+  drawLoadError: string
+  drawSaveError: string
+  drawEdit: string
+  drawEmpty: string
+  drawMissing: string
+  drawError: string
 }
 
 export interface RichTextEditorProps {
+  /** Project id, needed for embedded drawing file operations. */
+  projectId: string
   /** Markdown draft — the single source of truth (mirrors LineNumberTextarea). */
   value: string
   /** Emitted with `editor.getMarkdown()` (debounced) on user edits. */
@@ -166,9 +188,10 @@ interface ToolButtonSpec {
  * The parent re-renders the editor on every transaction (tick state), so
  * `isActive` states and undo availability stay current.
  */
-function RichTextToolbar({ editor, labels }: {
+function RichTextToolbar({ editor, labels, onInsertDrawing }: {
   editor: Editor
   labels: RichTextToolbarLabels
+  onInsertDrawing: () => void
 }): ReactNode {
   const chain = (): ChainedCommands => editor.chain().focus()
 
@@ -227,6 +250,7 @@ function RichTextToolbar({ editor, labels }: {
         editor.isActive('link'), onLink),
       button('table', labels.table, '▦', false,
         () => chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()),
+      button('drawing', labels.drawing, '✎', false, onInsertDrawing),
     ],
     [
       button('undo', labels.undo, '↶', false, () => chain().undo().run(),
@@ -286,6 +310,7 @@ function RichTextToolbar({ editor, labels }: {
 export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(
   function RichTextEditor(props, ref) {
     const {
+      projectId,
       value,
       onChange,
       reviewRows,
@@ -299,6 +324,16 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       closeLabel,
       toolbarLabels,
     } = props
+
+    // --- Embedded drawing modal: open reference + thumbnail refresh bump ---
+    const [drawingSrc, setDrawingSrc] = useState<string | null>(null)
+    const [changedSrc, setChangedSrc] = useState<string | null>(null)
+    const [changedAt, setChangedAt] = useState(0)
+
+    const handleDrawingSaved = useCallback((src: string): void => {
+      setChangedSrc(src)
+      setChangedAt(Date.now())
+    }, [])
 
     // --- Stable callback refs (so effect deps don't churn on parent renders) ---
     const onChangeRef = useRef(onChange)
@@ -332,6 +367,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         TaskItem.configure({ nested: true }),
         Placeholder.configure({ placeholder: '' }),
         Markdown.configure({ markedOptions: { gfm: true } }),
+        DrawingBlock,
         ReviewMarksExtension.configure({
           reviewRows: [],
           handlers: reviewHandlers,
@@ -443,6 +479,33 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       onSelectionClearRef.current()
     }, [])
 
+    // --- Insert drawing: allocate a new scene file, reference it, open it ---
+    const handleInsertDrawing = useCallback((): void => {
+      if (editor === null) return
+      ;(async (): Promise<void> => {
+        try {
+          const result = await api.createDrawing(projectId)
+          if (editor.isDestroyed) return
+          editor.chain().focus().insertDrawingBlock({ src: result.src }).run()
+          setDrawingSrc(result.src)
+        } catch {
+          // The create/insert failed; the document is left untouched.
+        }
+      })()
+    }, [editor, projectId])
+
+    // --- Context consumed by every DrawingBlockView NodeView ---
+    const drawingContextValue = useMemo<DrawingBlockContextValue>(() => ({
+      projectId,
+      openDrawing: (src: string) => setDrawingSrc(src),
+      changedSrc,
+      changedAt,
+      editLabel: toolbarLabels.drawEdit,
+      emptyLabel: toolbarLabels.drawEmpty,
+      missingLabel: toolbarLabels.drawMissing,
+      errorLabel: toolbarLabels.drawError,
+    }), [projectId, changedSrc, changedAt, toolbarLabels])
+
     useEffect(() => {
       if (editor === null) return
       let timer: ReturnType<typeof setTimeout> | null = null
@@ -527,8 +590,15 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     void badgeTitle
 
     return (
+      <DrawingBlockContext.Provider value={drawingContextValue}>
       <div ref={wrapRef} className="dbl-rt-editor">
-        {editor !== null && <RichTextToolbar editor={editor} labels={toolbarLabels} />}
+        {editor !== null && (
+          <RichTextToolbar
+            editor={editor}
+            labels={toolbarLabels}
+            onInsertDrawing={handleInsertDrawing}
+          />
+        )}
         <EditorContent editor={editor} />
         {fab !== null && (
           <div className="dbl-rv-fab dbl-rv-fab-richtext" style={{ left: fab.x, top: fab.y }}>
@@ -561,6 +631,22 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
           </div>
         )}
       </div>
+      {drawingSrc !== null && (
+        <ExcalidrawModal
+          projectId={projectId}
+          src={drawingSrc}
+          labels={{
+            title: toolbarLabels.drawTitle,
+            close: toolbarLabels.drawClose,
+            saving: toolbarLabels.drawSaving,
+            loadError: toolbarLabels.drawLoadError,
+            saveError: toolbarLabels.drawSaveError,
+          }}
+          onClose={() => setDrawingSrc(null)}
+          onSaved={handleDrawingSaved}
+        />
+      )}
+      </DrawingBlockContext.Provider>
     )
   },
 )

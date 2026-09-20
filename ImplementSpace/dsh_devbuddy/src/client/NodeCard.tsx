@@ -625,6 +625,7 @@ export function NodeCard({
       {mode === 'richtext' && (
         <RichTextEditor
           ref={rtEditorRef}
+          projectId={projectId}
           value={draft}
           onChange={setDraft}
           reviewRows={reviewRows}

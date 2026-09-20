@@ -177,6 +177,13 @@ export type ReviewerKey =
   | 'agent.truncated'
   | 'agent.doneHint'
   | 'agent.close'
+  // document reference picker (Approach A)
+  | 'refDoc.button'
+  | 'refDoc.title'
+  | 'refDoc.emptyBrowse'
+  | 'refDoc.loading'
+  | 'refDoc.wholeDocument'
+  | 'refDoc.headings'
 
 const en: Record<ReviewerKey, string> = {
   'tab.title': 'Reviews',
@@ -349,6 +356,13 @@ const en: Record<ReviewerKey, string> = {
   'agent.truncated': 'Context truncated due to size limit',
   'agent.doneHint': 'Agent reports completion · awaiting your verification:',
   'agent.close': 'Close',
+
+  'refDoc.button': '📎 Reference doc',
+  'refDoc.title': 'Reference document',
+  'refDoc.emptyBrowse': 'No markdown files found in the project directory.',
+  'refDoc.loading': 'Loading headings…',
+  'refDoc.wholeDocument': 'Whole document',
+  'refDoc.headings': 'Headings',
 }
 
 const zh: Record<ReviewerKey, string> = {
@@ -522,6 +536,13 @@ const zh: Record<ReviewerKey, string> = {
   'agent.truncated': 'Context 超出上限已截断',
   'agent.doneHint': 'Agent 报告完成 · 待你验收：',
   'agent.close': '关闭',
+
+  'refDoc.button': '📎 引用文档',
+  'refDoc.title': '引用文档',
+  'refDoc.emptyBrowse': '项目目录下没有 markdown 文件。',
+  'refDoc.loading': '加载标题中…',
+  'refDoc.wholeDocument': '整篇文档',
+  'refDoc.headings': '标题',
 }
 
 export const dictionaries = { zh, en }

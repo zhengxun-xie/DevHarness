@@ -5,7 +5,7 @@
  * append -> tmp+rename write, guarded by expectedSha optimistic locks.
  */
 import { mkdirSync, unlinkSync, writeFileSync, renameSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { basename, extname, resolve } from 'node:path'
 import { dshHome } from './dsh-home.ts'
 import { readJson, withLockedJson } from './json-store.ts'
 import {
@@ -16,6 +16,7 @@ import {
   visibleProjects,
   sha256,
   readDocument,
+  listMarkdownDocuments,
   type WorkspaceProvider,
 } from './projects.ts'
 import {
@@ -48,6 +49,7 @@ import type {
   EditReviewRequest,
   EditThreadEntryRequest,
   GetReviewResponse,
+  ListDocsResponse,
   ListReviewsResponse,
   ProjectRecord,
   ProjectsResponse,
@@ -327,6 +329,16 @@ export class ReviewStore {
     }
     reviews.sort((a, b) => (a.lineStart ?? Number.MAX_SAFE_INTEGER) - (b.lineStart ?? Number.MAX_SAFE_INTEGER))
     return { path: document, content: doc.content, sha: doc.sha, exists: doc.exists, headings, reviews }
+  }
+
+  /** List every markdown document under the project directory (doc-ref picker "browse"). */
+  listDocuments(projectId: string): ListDocsResponse {
+    const { project } = this.useProject(projectId)
+    const documents = listMarkdownDocuments(project.path).map(path => ({
+      path,
+      title: basename(path, extname(path)),
+    }))
+    return { documents }
   }
 
   // -------------------------------------------------------------------------

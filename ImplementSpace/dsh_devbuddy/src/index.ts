@@ -8,6 +8,7 @@
  *
  * @module dsh-devbuddy-left
  */
+import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { DevBuddyStore } from './host/store.ts'
 import { devbuddyRoutes } from './host/routes.ts'
@@ -23,6 +24,11 @@ export const inject = ['webServer']
 export function apply(ctx: Context): void {
   const store = new DevBuddyStore()
 
+  // excalidraw-bundle.js is built alongside this index.js in lib/; the host
+  // serves it at GET /api/devbuddy-left/excalidraw-bundle.js so the browser
+  // can lazy-load Excalidraw without bundling it into the main client.js.
+  const excalidrawBundlePath = fileURLToPath(new URL('./excalidraw-bundle.js', import.meta.url))
+
   // Attach the platform workspace registry lazily (same injection style as
   // dsh-taskboard): if the service is absent at startup the link projection
   // simply stays null until cordis publishes it.
@@ -33,7 +39,7 @@ export function apply(ctx: Context): void {
   })
 
   ctx.effect(() => {
-    const disposers = devbuddyRoutes(store).map(route => ctx.webServer.register(route))
+    const disposers = devbuddyRoutes(store, excalidrawBundlePath).map(route => ctx.webServer.register(route))
     return () => { for (const dispose of disposers) dispose() }
   }, 'dsh-devbuddy-left: loopback api')
   process.stderr.write('[dsh-devbuddy-left] host API mounted at /api/devbuddy-left\n')

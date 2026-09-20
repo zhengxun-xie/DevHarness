@@ -190,3 +190,60 @@ export function projectNodes(projectPath: string): NodeMeta[] {
     }
   })
 }
+
+/* --- Embedded drawing (Excalidraw) scene files --------------------------
+   Drawings are their own project files; the markdown document references
+   them only by a project-relative src (`![[diagram-1.excalidraw]]`). The
+   same trust model as node files: every path resolves back inside the
+   project (symlink-aware); writes are atomic tmp+rename. */
+
+/** Required suffix for a drawing reference. */
+export const DRAWING_EXTENSION = '.excalidraw'
+
+/** Validate a project-relative drawing src and return its absolute path. */
+export function drawingFilePath(projectPath: string, src: string): string {
+  const normalized = src.replace(/\\/g, '/')
+  if (normalized.length === 0 || normalized.includes('\0') || isAbsolute(normalized)) {
+    throw new Error(`invalid drawing src: ${src}`)
+  }
+  if (!normalized.endsWith(DRAWING_EXTENSION)) {
+    throw new Error(`drawing src must end with ${DRAWING_EXTENSION}: ${src}`)
+  }
+  const root = resolve(projectPath)
+  const file = resolve(root, normalized)
+  assertInside(root, file)
+  return file
+}
+
+/** Read one drawing scene. Missing files return exists=false, empty content. */
+export function readDrawingFile(projectPath: string, src: string): {
+  exists: boolean
+  content: string
+} {
+  const file = drawingFilePath(projectPath, src)
+  if (!existsSync(file)) return { exists: false, content: '' }
+  return { exists: true, content: readFileSync(file, 'utf8') }
+}
+
+/** Write one drawing scene atomically (mkdir parent, tmp+rename). */
+export function writeDrawingFile(projectPath: string, src: string, content: string): void {
+  const file = drawingFilePath(projectPath, src)
+  mkdirSync(dirname(file), { recursive: true })
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
+  writeFileSync(tmp, content, 'utf8')
+  renameSync(tmp, file)
+}
+
+/**
+ * Allocate the next free `diagram-N.excalidraw` path at the project root.
+ * Pure path allocation: the file is written by the caller with the initial
+ * scene JSON (see emptyDrawingScene in store.ts).
+ */
+export function nextDrawingSrc(projectPath: string): string {
+  const root = resolve(projectPath)
+  for (let n = 1; n < 10_000; n += 1) {
+    const candidate = `diagram-${n}${DRAWING_EXTENSION}`
+    if (!existsSync(resolve(root, candidate))) return candidate
+  }
+  throw new Error('could not allocate a free drawing file name')
+}

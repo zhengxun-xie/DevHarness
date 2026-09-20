@@ -10,8 +10,10 @@ import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type {
+  CreateDrawingResult,
   DevBuddyRegistry,
   DevBuddyState,
+  DrawingView,
   NodeView,
   ProjectRecord,
   ProjectSummary,
@@ -21,7 +23,16 @@ import type {
 import { REGISTRY_VERSION } from '../protocol.ts'
 import { readJson, withLockedJson } from './json-store.ts'
 import { dshHome, expandHome } from './dsh-home.ts'
-import { NODE_REGISTRY, projectNodes, readNode, requireNode, writeNode } from './node-files.ts'
+import {
+  NODE_REGISTRY,
+  nextDrawingSrc,
+  projectNodes,
+  readDrawingFile,
+  readNode,
+  requireNode,
+  writeDrawingFile,
+  writeNode,
+} from './node-files.ts'
 
 function emptyRegistry(): DevBuddyRegistry {
   return { version: REGISTRY_VERSION, projects: [], activeProjectId: null }
@@ -311,4 +322,60 @@ export class DevBuddyStore {
     const sha = writeNode(project.path, descriptor, content, expectedSha)
     return { sha }
   }
+
+  // --- Embedded drawing (Excalidraw) scenes -------------------------------
+
+  /** Read one drawing scene file for one project. */
+  readDrawingView(projectId: string, src: string): DrawingView {
+    const registry = this.load()
+    const project = this.requireProject(registry, projectId)
+    const read = readDrawingFile(project.path, src)
+    return { projectId, src, exists: read.exists, content: read.content }
+  }
+
+  /**
+   * Write one drawing scene. Content must parse as an Excalidraw scene JSON
+   * object (type 'excalidraw' with an elements array) so a stray request
+   * can never drop arbitrary bytes into a `.excalidraw` file.
+   */
+  writeDrawingView(projectId: string, src: string, content: string): void {
+    const registry = this.load()
+    const project = this.requireProject(registry, projectId)
+    let scene: unknown
+    try {
+      scene = JSON.parse(content)
+    } catch {
+      throw new Error('drawing content must be valid JSON')
+    }
+    const record = scene as { type?: unknown; elements?: unknown }
+    if (record.type !== 'excalidraw' || !Array.isArray(record.elements)) {
+      throw new Error('drawing content must be an excalidraw scene (type: "excalidraw")')
+    }
+    writeDrawingFile(project.path, src, content)
+  }
+
+  /**
+   * Allocate and seed a new empty drawing, returning its project-relative
+   * src. The client inserts a `![[src]]` reference at the cursor, then the
+   * user opens the drawing to edit it.
+   */
+  createDrawingView(projectId: string): CreateDrawingResult {
+    const registry = this.load()
+    const project = this.requireProject(registry, projectId)
+    const src = nextDrawingSrc(project.path)
+    writeDrawingFile(project.path, src, emptyDrawingScene())
+    return { src }
+  }
+}
+
+/** Fresh Excalidraw scene JSON, matching the editor's serialized shape. */
+function emptyDrawingScene(): string {
+  return JSON.stringify({
+    type: 'excalidraw',
+    version: 2,
+    source: 'https://excalidraw.com',
+    elements: [],
+    appState: { gridSize: null, viewBackgroundColor: '#ffffff' },
+    files: {},
+  })
 }

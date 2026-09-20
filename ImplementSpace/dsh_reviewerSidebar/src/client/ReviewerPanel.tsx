@@ -41,7 +41,7 @@ export interface ReviewerTabParams {
 type Route =
   | { name: 'list' }
   | { name: 'detail'; reviewId: string }
-  | { name: 'document'; document: string; reviewId: string | null; rebindFor?: string | null }
+  | { name: 'document'; document: string; reviewId: string | null; rebindFor?: string | null; focusLineStart?: number; focusLineEnd?: number }
   | { name: 'composer'; draft: ComposerDraft }
 
 export type ReviewerPanelProps =
@@ -358,14 +358,15 @@ export function ReviewerPanel({ t, useTabInfo }: ReviewerPanelProps): ReactNode 
           projectId={activeProjectId}
           reviewId={route.reviewId}
           siblings={reviews}
+          docTree={docTree}
           refreshSignal={refreshSignal}
           onBack={() => setRoute({ name: 'list' })}
           onChanged={document => {
             notifyChanged(document, [route.reviewId])
             setRefreshSignal(signal => signal + 1)
           }}
-          onOpenDocument={(document, reviewId) =>
-            setRoute({ name: 'document', document, reviewId })}
+          onOpenDocument={(document, reviewId, focusLineStart, focusLineEnd) =>
+            setRoute({ name: 'document', document, reviewId, focusLineStart, focusLineEnd })}
           onRebind={(document, reviewId) =>
             setRoute({ name: 'document', document, reviewId: null, rebindFor: reviewId })}
           t={t}
@@ -379,6 +380,8 @@ export function ReviewerPanel({ t, useTabInfo }: ReviewerPanelProps): ReactNode 
           initialReviewId={route.reviewId}
           refreshSignal={refreshSignal}
           rebindFor={route.rebindFor ?? null}
+          focusLineStart={route.focusLineStart}
+          focusLineEnd={route.focusLineEnd}
           onBack={() => setRoute({ name: 'list' })}
           onOpenReview={reviewId => setRoute({ name: 'detail', reviewId })}
           onCompose={draft => setRoute({ name: 'composer', draft })}
@@ -394,6 +397,7 @@ export function ReviewerPanel({ t, useTabInfo }: ReviewerPanelProps): ReactNode 
       {route.name === 'composer' && activeProjectId && (
         <ReviewComposer
           draft={route.draft}
+          docTree={docTree}
           onSubmit={submitReview}
           onCancel={() => setRoute({ name: 'list' })}
           t={t}

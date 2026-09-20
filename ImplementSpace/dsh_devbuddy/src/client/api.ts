@@ -8,10 +8,13 @@
  */
 import { DEVBUDDY_API_PREFIX } from '../protocol.ts'
 import type {
+  CreateDrawingResult,
   DevBuddyState,
+  DrawingView,
   NodeView,
   ProjectSummary,
   WorkspaceInfo,
+  WriteDrawingRequest,
   WriteNodeRequest,
   WriteNodeResult,
 } from '../protocol.ts'
@@ -56,5 +59,16 @@ export const api = {
   },
   writeNode(projectId: string, nodeId: string, body: WriteNodeRequest): Promise<WriteNodeResult> {
     return post('/node', { ...body, projectId, nodeId })
+  },
+  readDrawing(projectId: string, src: string): Promise<DrawingView> {
+    const query = new URLSearchParams({ projectId, src })
+    return request(`/drawing?${query.toString()}`)
+  },
+  writeDrawing(projectId: string, src: string, content: string): Promise<{ ok: true }> {
+    const body: WriteDrawingRequest = { src, content }
+    return post('/drawing', { ...body, projectId })
+  },
+  createDrawing(projectId: string): Promise<CreateDrawingResult> {
+    return post('/drawing/create', { projectId })
   },
 }

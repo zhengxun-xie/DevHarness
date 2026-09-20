@@ -165,8 +165,18 @@ export function DevBuddyPanel({ t, sidebarRight, sessions, panelController }: De
       unlink: t('toolbar.unlink'),
       linkPrompt: t('toolbar.linkPrompt'),
       table: t('toolbar.table'),
+      drawing: t('toolbar.drawing'),
       undo: t('toolbar.undo'),
       redo: t('toolbar.redo'),
+      drawTitle: t('draw.title'),
+      drawClose: t('draw.close'),
+      drawSaving: t('draw.saving'),
+      drawLoadError: t('draw.loadError'),
+      drawSaveError: t('draw.saveError'),
+      drawEdit: t('draw.edit'),
+      drawEmpty: t('draw.empty'),
+      drawMissing: t('draw.missing'),
+      drawError: t('draw.error'),
     },
   }
 
