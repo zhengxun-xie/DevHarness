@@ -71,6 +71,9 @@ export function apply(ctx: Context): void {
       () => agentTeams,
       () => agentRegistry,
     )
+    // The dispatcher doubles as the review↔session lifecycle adapter
+    // (design/09): create/rename/archive/unarchive the review's 1:1 session.
+    store.attachSessionLifecycle(dispatcher)
     const disposers = reviewerRoutes(store, dispatcher).map(route => ctx.webServer.register(route))
     // Correlate dispatched runs (prompt requestId -> user/message rpcId ->
     // turn assistant text -> agent-authored review thread comment).

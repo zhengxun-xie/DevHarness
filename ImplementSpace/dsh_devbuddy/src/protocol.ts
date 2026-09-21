@@ -173,3 +173,58 @@ export interface WriteDrawingRequest {
 export interface CreateDrawingResult {
   src: string
 }
+
+/**
+ * AI quick-action identifiers (shared with the host prompt templates). The
+ * array is the single source of truth; the route-side allowlist validates
+ * against it so a new action cannot land in one place but not the other.
+ */
+export const AI_ACTION_IDS = [
+  'polish', 'translate', 'summarize', 'continue', 'explain', 'custom',
+] as const
+
+/** AI quick-action identifier type. */
+export type AiActionId = typeof AI_ACTION_IDS[number]
+
+/**
+ * POST body for /ai/dispatch. The host creates-or-reuses one long-lived
+ * "[AI优化]<document>" session per project document and runs the action there,
+ * so consecutive turns (including the modal's 追问) accumulate context.
+ */
+export interface AiDispatchRequest {
+  projectId: string
+  /** Node file name (e.g. "CoreRequirements.md") — the session's identity key. */
+  document: string
+  action: AiActionId
+  /** Selected text being operated on ('' for 'continue' at the caret). */
+  selection: string
+  /**
+   * Bounded plain-text window before the selection/caret. Without document
+   * context the agent cannot continue or explain anything meaningful.
+   */
+  contextBefore?: string
+  /** Bounded plain-text window after the selection/caret. */
+  contextAfter?: string
+  /** Present on follow-up turns; the prior turns already live in the session. */
+  followUp?: string
+  /**
+   * The user's own revision instruction, required by the 'custom' action
+   * (the popover's second-row 修改 input). Ignored by the fixed actions.
+   */
+  instruction?: string
+}
+
+/** POST /ai/dispatch result. */
+export interface AiDispatchResult {
+  /** Whether a prompt was admitted to a real session. */
+  delivered: boolean
+  /** The long-lived session id (reused across turns), null on failure paths. */
+  sessionId: string | null
+  /** The assistant's reply text (empty/null when no durable reply arrived). */
+  text: string | null
+  reason:
+    | 'sent'
+    | 'no-session-controller'
+    | 'no-reply'
+    | 'controller-error'
+}

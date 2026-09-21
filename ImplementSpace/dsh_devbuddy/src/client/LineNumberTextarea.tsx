@@ -36,6 +36,7 @@
  */
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ChangeEvent } from 'react'
+import { lfOffsetToRaw } from './reviewer-bridge.ts'
 
 export type ReviewSeverity = 'info' | 'minor' | 'major' | 'critical'
 
@@ -100,6 +101,8 @@ export interface LineNumberTextareaProps {
   /** Bubble copy. */
   addReviewLabel: string
   closeLabel: string
+  /** LF offset to restore caret position after a mode switch (null = skip). */
+  restoreCaret?: number | null
 }
 
 export interface LineNumberTextareaHandle {
@@ -162,6 +165,7 @@ function LineNumberTextarea({
   badgeTitle,
   addReviewLabel,
   closeLabel,
+  restoreCaret,
 }, ref) {
   const editorRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
@@ -182,6 +186,42 @@ function LineNumberTextarea({
       return { start: rawStart - crlfBefore(rawStart), end: rawEnd - crlfBefore(rawEnd) }
     },
   }), [])
+
+  // --- Restore caret after a mode switch (richtext → source) ---
+  // LF offset → raw textarea offset, then focus + set selection + scroll the
+  // nearest scrollable ancestor to the caret line. The textarea itself is
+  // overflow:hidden / auto-growing, so ta.scrollTop is always 0 — the outer
+  // panel scrolls. We use the mirror's per-line span for an exact row jump.
+  //
+  // ORDERING: this effect is declared ABOVE the auto-grow effect (measure →
+  // grow), so on mount it runs FIRST — the textarea is still short and the
+  // scroll container has nothing to scroll; scrollIntoView would clamp to a
+  // no-op. grow() is therefore called here to stretch the surface to full
+  // content height BEFORE scrolling. focus({preventScroll}) keeps the
+  // browser from racing us with its own scroll-to-textarea-top behavior.
+  useLayoutEffect(() => {
+    if (restoreCaret === null || restoreCaret === undefined) return
+    const ta = taRef.current
+    if (ta === null) return
+    const raw = lfOffsetToRaw(value, restoreCaret)
+    ta.focus({ preventScroll: true })
+    ta.setSelectionRange(raw, raw)
+    const mirror = mirrorRef.current
+    if (mirror === null) return
+    grow()
+    const lineIdx = value.slice(0, raw).split('\n').length - 1
+    const scrollCaretIntoView = (): void => {
+      const spans = mirror.querySelectorAll<HTMLElement>('[data-mirror-line]')
+      const span = spans[lineIdx]
+      if (span !== undefined) span.scrollIntoView({ block: 'center' })
+    }
+    scrollCaretIntoView()
+    // One frame later: webfont settling and ResizeObserver remeasure can
+    // shift line positions after the initial layout — re-center once.
+    const raf = requestAnimationFrame(scrollCaretIntoView)
+    return () => { cancelAnimationFrame(raf) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Memoized: a fresh array on every render made rangeRects a new callback
   // identity each pass, re-running the overlay effect and feeding it back

@@ -17,9 +17,10 @@
  * The Excalidraw stylesheet is bundled inside the Excalidraw bundle as a
  * JS string export; the modal injects it through a <style> tag once on load.
  */
-import { useEffect, useRef, useState } from 'react'
+import { Component, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { BinaryFiles, ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types'
 import { loadExcalidrawBundle, type ExcalidrawBundleAPI } from './excalidraw-loader.ts'
+import { restoreScene } from './drawing-render.ts'
 import { api } from './api.ts'
 
 const SAVE_DEBOUNCE_MS = 800
@@ -51,6 +52,36 @@ interface SceneInitialData {
   scrollToContent: boolean
 }
 
+/** Attach the concrete failure reason to the generic load-error line. */
+function loadFailure(label: string, error: unknown): string {
+  const reason = error instanceof Error && error.message !== '' ? error.message : String(error)
+  return `${label}：${reason}`
+}
+
+/**
+ * TEMP DIAGNOSTIC: catches render errors thrown by the Excalidraw tree so
+ * they surface inside the modal instead of tearing down the whole panel.
+ */
+interface BoundaryProps { children: ReactNode }
+interface BoundaryState { error: string | null }
+class ExcalidrawBoundary extends Component<BoundaryProps, BoundaryState> {
+  state: BoundaryState = { error: null }
+
+  static getDerivedStateFromError(error: unknown): BoundaryState {
+    const message = error instanceof Error && error.message !== ''
+      ? error.message
+      : String(error)
+    return { error: message }
+  }
+
+  render(): ReactNode {
+    if (this.state.error !== null) {
+      return <pre className="dbl-draw-modal-fatal">Excalidraw render error: {this.state.error}</pre>
+    }
+    return this.props.children
+  }
+}
+
 export function ExcalidrawModal({
   projectId,
   src,
@@ -62,6 +93,8 @@ export function ExcalidrawModal({
   const [initialData, setInitialData] = useState<SceneInitialData | null>(null)
   const [fatal, setFatal] = useState<string | null>(null)
   const [notice, setNotice] = useState<string>('')
+  /** TEMP DIAGNOSTIC: live scene/viewport readout shown in the modal head. */
+  const [probe, setProbe] = useState<string>('')
 
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -70,6 +103,32 @@ export function ExcalidrawModal({
   const closedRef = useRef(false)
   const onSavedRef = useRef(onSaved)
   onSavedRef.current = onSaved
+
+  /**
+   * TEMP DIAGNOSTIC: sample the live scene + viewport through the imperative
+   * API once the editor mounts, so a blank canvas can be told apart from an
+   * unloaded scene or an unmeasured container.
+   */
+  const scheduleProbe = (): void => {
+    const inst = apiRef.current
+    if (inst === null) return
+    const read = (): void => {
+      try {
+        const els = inst.getSceneElements()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const st = inst.getAppState() as any
+        const zoom = typeof st?.zoom === 'number' ? st.zoom : st?.zoom?.value
+        setProbe(
+          `scene=${els.length} vp=${st?.width}x${st?.height} zoom=${zoom} ` +
+          `scroll=(${Math.round(st?.scrollX ?? 0)},${Math.round(st?.scrollY ?? 0)})`,
+        )
+      } catch (error) {
+        setProbe(`probe: ${String(error)}`)
+      }
+    }
+    setTimeout(read, 600)
+    setTimeout(read, 2500)
+  }
 
   // --- Lazy-load the Excalidraw bundle + inject its CSS ---
   useEffect(() => {
@@ -86,7 +145,7 @@ export function ExcalidrawModal({
           document.head.appendChild(tag)
         }
       })
-      .catch(() => { if (!cancelled) setFatal(labels.loadError) })
+      .catch((error) => { if (!cancelled) setFatal(loadFailure(labels.loadError, error)) })
     return () => { cancelled = true }
   }, [labels.loadError])
 
@@ -99,17 +158,15 @@ export function ExcalidrawModal({
         const view = await api.readDrawing(projectId, src)
         if (cancelled) return
         if (view.exists && view.content.trim() !== '') {
-          const scene = JSON.parse(view.content) as {
-            elements?: unknown
-            appState?: unknown
-            files?: unknown
-          }
+          // Restore through Excalidraw's own pipeline (the same one the
+          // thumbnail uses). Passing the raw JSON straight to initialData
+          // skips linear/text normalization and renders a blank canvas for
+          // saved scenes with arrows or version mismatches.
+          const scene = restoreScene(view.content, bundle)
           setInitialData({
-            elements: Array.isArray(scene.elements)
-              ? scene.elements as SceneInitialData['elements']
-              : [],
-            appState: (scene.appState ?? {}) as Record<string, unknown>,
-            files: (scene.files ?? {}) as BinaryFiles,
+            elements: scene.elements,
+            appState: scene.appState,
+            files: scene.files,
             scrollToContent: true,
           })
         } else {
@@ -120,8 +177,8 @@ export function ExcalidrawModal({
             scrollToContent: false,
           })
         }
-      } catch {
-        if (!cancelled) setFatal(labels.loadError)
+      } catch (error) {
+        if (!cancelled) setFatal(loadFailure(labels.loadError, error))
       }
     })()
     return () => { cancelled = true }
@@ -204,6 +261,7 @@ export function ExcalidrawModal({
         <div className="dbl-draw-modal-head">
           <span className="dbl-draw-modal-title">✎ {labels.title}: {src}</span>
           <span className="dbl-draw-modal-notice">{notice}</span>
+          <span className="dbl-draw-modal-notice" data-probe="1">{probe}</span>
           <button
             type="button"
             className="dbl-linkbtn"
@@ -221,14 +279,30 @@ export function ExcalidrawModal({
               : (() => {
                   const ExcalidrawComponent = bundle!.Excalidraw
                   return (
-                    <ExcalidrawComponent
-                      initialData={initialData}
-                      excalidrawAPI={(instance: ExcalidrawImperativeAPI) => { apiRef.current = instance }}
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      onChange={(elements: any, appState: any, files: any) => {
-                        scheduleSave(bundle!.serializeAsJSON(elements, appState, files, 'local'))
-                      }}
-                    />
+                    <ExcalidrawBoundary>
+                      <ExcalidrawComponent
+                        initialData={initialData}
+                        excalidrawAPI={(instance: ExcalidrawImperativeAPI) => {
+                          apiRef.current = instance
+                          scheduleProbe()
+                          // initialData.scrollToContent runs before the
+                          // ResizeObserver measures the container, so the
+                          // scroll it computes is off-centre. Re-centre
+                          // imperatively once dimensions are in.
+                          setTimeout(() => {
+                            try { instance.scrollToContent() } catch { /* non-fatal */ }
+                          }, 400)
+                        }}
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        onChange={(elements: any, appState: any, files: any) => {
+                          try {
+                            scheduleSave(bundle!.serializeAsJSON(elements, appState, files, 'local'))
+                          } catch (error) {
+                            setNotice(`serialize: ${String(error)}`)
+                          }
+                        }}
+                      />
+                    </ExcalidrawBoundary>
                   )
                 })()
           }

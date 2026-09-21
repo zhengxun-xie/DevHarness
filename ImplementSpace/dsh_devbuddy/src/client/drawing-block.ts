@@ -1,16 +1,18 @@
 /**
  * Tiptap block node for an embedded Excalidraw drawing reference.
  *
- * On-disk representation (in the markdown document) is one line:
+ * On-disk representation (in the markdown document) is one line in either
+ * shape:
  *
- *   ![[diagram-1.excalidraw]]
+ *   ![[diagram-1.excalidraw]]            (wikilink, canonical)
+ *   ![](diagram-1.excalidraw)            (standard markdown image)
  *
  * `@tiptap/markdown` knows nothing about wikilinks, so this extension
  * contributes:
  *   - `markdownTokenizer` — a marked block-level tokenizer that recognizes a
- *     line of that exact shape (the `src` field rides on the token);
+ *     line of either exact shape (the `src` field rides on the token);
  *   - `parseMarkdown` — token → drawingBlock JSON node with a `src` attr;
- *   - `renderMarkdown` — node → the same reference line.
+ *   - `renderMarkdown` — node → the canonical wikilink reference line.
  *
  * The node is atom/selectable/draggable and renders through a React NodeView
  * (`DrawingBlockView`) that shows a fitted thumbnail; clicking it opens the
@@ -31,6 +33,14 @@ export const DRAWING_BLOCK_NAME = 'drawingBlock'
  * consumed as part of `raw` so marked advances past it.
  */
 const DRAWING_LINE = /^!\[\[([^\[\]\r\n]+\.excalidraw)\]\][^\S\r\n]*(?:\r?\n|$)/
+
+/**
+ * Standard markdown image line referencing a drawing — `![](x.excalidraw)`
+ * or `![alt](x.excalidraw)`. Spaces just inside the parens are tolerated and
+ * trimmed; without this rule the line would be a broken inline image (the
+ * browser cannot render the scene JSON as an image).
+ */
+const DRAWING_IMAGE_LINE = /^!\[[^\[\]\r\n]*\]\(\s*([^()\r\n]+?\.excalidraw)\s*\)[^\S\r\n]*(?:\r?\n|$)/
 
 /** Extra markdown fields not part of @tiptap/core's NodeConfig typing. */
 interface MarkdownNodeFields {
@@ -108,9 +118,15 @@ export const DrawingBlock = Node.create({
     // tokenization for all blocks after the first paragraph.
     start: () => -1,
     tokenize(src: string) {
-      const match = DRAWING_LINE.exec(src)
-      if (match === null) return undefined
-      return { type: DRAWING_BLOCK_NAME, raw: match[0], src: match[1] }
+      const wiki = DRAWING_LINE.exec(src)
+      if (wiki !== null) {
+        return { type: DRAWING_BLOCK_NAME, raw: wiki[0], src: wiki[1] }
+      }
+      const image = DRAWING_IMAGE_LINE.exec(src)
+      if (image !== null) {
+        return { type: DRAWING_BLOCK_NAME, raw: image[0], src: image[1] }
+      }
+      return undefined
     },
   },
   parseMarkdown(token: { src?: unknown }) {

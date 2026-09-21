@@ -174,6 +174,8 @@ export function NodeCard({
   /** Dashed pending selection anchor (raw offsets) + LF offsets for the draft. */
   const [pendingRange, setPendingRange] = useState<PendingRange | null>(null)
   const [pendingLf, setPendingLf] = useState<{ start: number; end: number } | null>(null)
+  /** LF offset saved before a mode switch so the target surface can restore it. */
+  const [savedCaret, setSavedCaret] = useState<number | null>(null)
 
   // --- Source surface: imperative textarea handle for zero-length caret anchors ---
   const sourceEditorRef = useRef<LineNumberTextareaHandle>(null)
@@ -321,6 +323,18 @@ export function NodeCard({
       if (!draftSeeded) {
         setDraft(content ?? await loadContent())
         setDraftSeeded(true)
+      }
+      // Save the current caret (LF offset) so the target surface can restore
+      // it after mount — prevents the cursor from jumping to the top of the
+      // document on every mode switch in long content.
+      if (mode === 'richtext') {
+        const range = rtEditorRef.current?.getSelectionRange() ?? null
+        setSavedCaret(range !== null ? range.start : null)
+      } else if (mode === 'source') {
+        const range = sourceEditorRef.current?.getSelectionRange() ?? null
+        setSavedCaret(range !== null ? range.start : null)
+      } else {
+        setSavedCaret(null)
       }
       setStatus(null)
       setMode(target)
@@ -508,6 +522,7 @@ export function NodeCard({
   // save/dirty so the listener can be bound once per open/close instead of
   // re-binding on every keystroke and reading stale closures.
   const cardRootRef = useRef<HTMLElement | null>(null)
+  const headRef = useRef<HTMLDivElement | null>(null)
   const saveFnRef = useRef<() => Promise<boolean>>(save)
   const dirtyRef = useRef(dirty)
   saveFnRef.current = save
@@ -532,11 +547,28 @@ export function NodeCard({
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [mode])
 
+  // Keep --dbl-head-h (the sticky offset for the rich-text toolbar, see
+  // .dbl-rt-toolbar in styles.ts) in sync with the header's real height —
+  // it wraps to two rows when the sidebar is narrow or save/discard appear.
+  useEffect(() => {
+    const head = headRef.current
+    const root = cardRootRef.current
+    if (head === null || root === null) return
+    const update = (): void => {
+      root.style.setProperty('--dbl-head-h', `${head.offsetHeight}px`)
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(head)
+    return () => { observer.disconnect() }
+  }, [])
+
   return (
     <section ref={cardRootRef} className="dbl-node">
       {/* Whole header toggles collapse/expand; the actions cluster stops
           propagation so 富文本/源码/放弃/保存 never collapse the card. */}
       <div
+        ref={headRef}
         className="dbl-node-head"
         role="button"
         tabIndex={0}
@@ -626,6 +658,7 @@ export function NodeCard({
         <RichTextEditor
           ref={rtEditorRef}
           projectId={projectId}
+          documentName={meta.file}
           value={draft}
           onChange={setDraft}
           reviewRows={reviewRows}
@@ -638,6 +671,7 @@ export function NodeCard({
           addReviewLabel={labels.addReview}
           closeLabel={labels.closeReview}
           toolbarLabels={labels.toolbar}
+          restoreCaret={savedCaret}
         />
       )}
       {mode === 'source' && (
@@ -656,6 +690,7 @@ export function NodeCard({
           badgeTitle={renderBadgeTitle}
           addReviewLabel={labels.addReview}
           closeLabel={labels.closeReview}
+          restoreCaret={savedCaret}
         />
       )}
       {status !== null && <div className="dbl-status" data-kind={status.kind}>{status.text}</div>}

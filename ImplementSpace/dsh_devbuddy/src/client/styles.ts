@@ -424,15 +424,29 @@ html[data-devbuddy-active] [data-side='rightbar'][data-dragging]::after {
 .dbl-rt-editor .ProseMirror p.is-editor-empty:first-child::before {
   content: ""; color: transparent; float: left; pointer-events: none; height: 0;
 }
+/* Ensure empty inline-content blocks (empty list items, empty paragraphs)
+   have a clickable hit area equal to one line height. Without this, browser
+   hit-testing on a 0-height empty <p> can place the selection in the next
+   block instead of the empty one. */
+.dbl-rt-editor .ProseMirror p:empty {
+  min-height: 1.7em;
+}
 /* --- rich-text persistent formatting toolbar ----------------------------
    Compact single row pinned to the top of the editor surface; horizontally
    scrollable when the sidebar is too narrow (scrollbar hidden). Follows the
-   theme through the dsw alias vars. */
+   theme through the dsw alias vars. Sticky like .dbl-node-head: the offset
+   comes from the --dbl-head-h var (measured at runtime — the head wraps to
+   two rows on narrow sidebars), and negative margins span the card's padding
+   edge so the solid background hides document lines scrolling beneath. */
 .dbl-rt-toolbar {
+  position: sticky;
+  top: var(--dbl-head-h, 41px);
+  z-index: 5;
   display: flex; align-items: center; flex-wrap: nowrap; gap: 2px;
-  padding: 5px 8px;
+  margin: 0 -14px;
+  padding: 5px 14px;
   border-bottom: 1px solid var(--border-color, rgba(0,0,0,0.12));
-  background: var(--dsw-alias-bg-2, rgba(0,0,0,0.02));
+  background: var(--dsw-alias-bg-base, #fff);
   overflow-x: auto; scrollbar-width: none;
 }
 .dbl-rt-toolbar::-webkit-scrollbar { display: none; }
@@ -465,6 +479,148 @@ html[data-devbuddy-active] [data-side='rightbar'][data-dragging]::after {
 .dbl-rt-g-italic { font-style: italic; }
 .dbl-rt-g-strike { text-decoration: line-through; }
 .dbl-rt-g-code { font-family: var(--font-mono, monospace); font-size: 11px; }
+/* --- AI quick-action button + popover menu (portal, fixed) --- */
+.dbl-rt-ai-btn {
+  font-weight: 600; letter-spacing: 0.5px;
+  color: var(--dsw-alias-link, #3b6fd4);
+}
+.dbl-rt-ai-btn[data-active="true"] {
+  background: var(--dsw-alias-interactive-bg-active, rgba(91,141,239,0.16));
+}
+.dbl-rt-ai-menu {
+  position: fixed; z-index: 9999;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.16));
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-1, #fff);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+}
+/* Row 1 = quick actions, row 2 = the free-form revision input. */
+.dbl-rt-ai-row {
+  display: flex; flex-direction: row; gap: 2px;
+}
+.dbl-rt-ai-custom {
+  align-items: center; gap: 4px;
+  padding-top: 4px; margin-top: 2px;
+  border-top: 1px solid var(--border-color, rgba(0,0,0,0.10));
+}
+.dbl-rt-ai-input {
+  flex: 1 1 auto; min-width: 0;
+  font: inherit; font-size: 12px; line-height: 1.4;
+  padding: 4px 8px;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.16));
+  border-radius: 4px;
+  background: transparent; color: inherit;
+}
+.dbl-rt-ai-input:focus {
+  outline: none;
+  border-color: var(--dsw-alias-link, #3b6fd4);
+}
+.dbl-rt-ai-send {
+  flex: 0 0 auto;
+  font-weight: 600; color: var(--dsw-alias-link, #3b6fd4);
+}
+.dbl-rt-ai-item {
+  border: none; background: transparent; color: inherit;
+  font-size: 12px; line-height: 1.4; text-align: center;
+  white-space: nowrap;
+  padding: 6px 10px; border-radius: 4px; cursor: pointer;
+}
+.dbl-rt-ai-item:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.06));
+}
+.dbl-rt-ai-item:disabled { opacity: .45; cursor: default; }
+.dbl-rt-ai-err {
+  margin-top: 4px; padding: 4px 8px;
+  font-size: 11px; color: #c0392b;
+  border-top: 1px solid var(--border-color, rgba(0,0,0,0.10));
+}
+/* Inline dispatch error below the toolbar (the menu is closed by then). */
+.dbl-rt-ai-err-inline {
+  border-top: none; margin-top: 0; padding: 2px 4px;
+  font-size: 12px; color: #c0392b;
+}
+/* --- AI suggestion preview modal ------------------------------------------
+   Replaces the old "AI button writes straight into the doc" flow with a
+   preview dialog: read-only original + editable suggestion + follow-up row +
+   cancel/apply footer. */
+.dbl-ai-modal-backdrop {
+  position: fixed; inset: 0; z-index: 10000;
+  background: rgba(0,0,0,0.45);
+  display: flex; align-items: center; justify-content: center;
+}
+.dbl-ai-modal {
+  width: min(680px, 92vw); max-height: 86vh;
+  background: var(--dsw-alias-bg-overlay, #fff);
+  border-radius: 12px; overflow: hidden;
+  display: flex; flex-direction: column;
+  box-shadow: 0 18px 60px rgba(0,0,0,0.35);
+}
+.dbl-ai-modal-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; flex: none;
+  border-bottom: 1px solid var(--dsw-alias-line, rgba(0,0,0,0.1));
+}
+.dbl-ai-modal-title { font-size: 13px; font-weight: 600; }
+.dbl-ai-modal-body {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 14px; flex: 1; min-height: 0; overflow: auto;
+}
+.dbl-ai-modal-pane { display: flex; flex-direction: column; gap: 5px; }
+.dbl-ai-modal-label {
+  font-size: 11px; font-weight: 600; opacity: 0.6;
+  letter-spacing: 0.4px; text-transform: uppercase;
+}
+.dbl-ai-modal-original {
+  font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+  padding: 8px 10px; border-radius: 6px;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.12));
+  background: var(--dsw-alias-bg-2, rgba(0,0,0,0.03));
+  max-height: 132px; overflow: auto;
+}
+.dbl-ai-modal-textarea {
+  width: 100%; box-sizing: border-box; min-height: 150px; resize: vertical;
+  font: inherit; font-size: 13px; line-height: 1.6;
+  padding: 8px 10px; border-radius: 6px;
+  border: 1px solid var(--dsw-alias-line, rgba(0,0,0,0.2));
+  background: var(--dsw-alias-bg-overlay, #fff); color: inherit;
+}
+.dbl-ai-modal-textarea:focus {
+  outline: none; border-color: var(--dsw-alias-link, #3b6fd4);
+}
+.dbl-ai-modal-followup { display: flex; gap: 6px; }
+.dbl-ai-modal-followup-input {
+  flex: 1; box-sizing: border-box; font: inherit; font-size: 13px;
+  padding: 7px 10px; border-radius: 6px;
+  border: 1px solid var(--dsw-alias-line, rgba(0,0,0,0.2));
+  background: var(--dsw-alias-bg-overlay, #fff); color: inherit;
+}
+.dbl-ai-modal-followup-input:focus {
+  outline: none; border-color: var(--dsw-alias-link, #3b6fd4);
+}
+.dbl-ai-modal-followup-btn {
+  border: 1px solid var(--dsw-alias-line, rgba(0,0,0,0.2)); border-radius: 6px;
+  background: transparent; color: var(--dsw-alias-link, #3b6fd4);
+  font: inherit; font-size: 13px; padding: 6px 12px; cursor: pointer; white-space: nowrap;
+}
+.dbl-ai-modal-followup-btn:disabled { opacity: 0.45; cursor: default; }
+.dbl-ai-modal-err { font-size: 12px; color: #c0392b; }
+.dbl-ai-modal-foot {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 10px 14px; flex: none;
+  border-top: 1px solid var(--dsw-alias-line, rgba(0,0,0,0.1));
+}
+.dbl-ai-modal-btn {
+  border: 1px solid var(--dsw-alias-line, rgba(0,0,0,0.2)); border-radius: 6px;
+  background: transparent; color: inherit;
+  font: inherit; font-size: 13px; padding: 6px 14px; cursor: pointer;
+}
+.dbl-ai-modal-btn:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.06)); }
+.dbl-ai-modal-apply {
+  background: var(--dsw-alias-link, #3b6fd4); color: #fff; border-color: transparent;
+}
+.dbl-ai-modal-apply:hover { background: var(--dsw-alias-link-hover, #2f5bbf); }
 /* --- richtext/source chrome, mirroring the sidebar file editor -----------
    Collapse glyph + segmented [富文本|源码] mode switch (always visible, active
    segment highlighted) + dirty dot + discard/save text buttons. */
@@ -751,6 +907,12 @@ html[data-devbuddy-active] [data-side='rightbar'][data-dragging]::after {
 }
 .dbl-draw-glyph { font-size: 14px; opacity: 0.65; flex: none; }
 .dbl-draw-label { font-size: 12.5px; opacity: 0.75; }
+/* Concrete failure reason under the generic '画板不可用' line. */
+.dbl-draw-detail {
+  display: block; margin-top: 2px;
+  font-size: 11px; line-height: 1.4;
+  color: #c0392b; white-space: normal; word-break: break-all;
+}
 .dbl-draw-name {
   margin-left: auto; font-size: 11px; opacity: 0.5;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

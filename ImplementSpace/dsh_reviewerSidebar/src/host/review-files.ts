@@ -114,7 +114,7 @@ function asReviewType(value: YamlValue | undefined): ReviewType {
 const KNOWN_KEYS = new Set([
   'schemaVersion', 'schema_version', 'review_id', 'number', 'document', 'document_sha',
   'type', 'severity', 'title', 'status', 'tags', 'related_parties', 'target', 'author', 'author_ref',
-  'assignee', 'assignee_member', 'team_task_id', 'related', 'decision', 'decisions', 'agent_completion', 'thread',
+  'assignee', 'assignee_member', 'team_task_id', 'session_id', 'related', 'decision', 'decisions', 'agent_completion', 'thread',
   'created_at', 'updated_at', 'resolved_at', 'duplicated_of', 'comment_edited_at',
 ])
 
@@ -583,6 +583,8 @@ export function parseReviewFile(content: string): ParsedReviewFile {
     target: anchorFromYaml(asObject(fm.target)),
     author: asString(fm.author, authorRef.id) || authorRef.id,
     authorRef,
+    // 1:1 lifecycle session (design/09); legacy files parse null.
+    sessionId: asNullableString(fm.session_id ?? fm.sessionId),
     assignee: asNullableString(fm.assignee),
     // Team dispatch attribution (design/08); legacy files simply parse null.
     assigneeMember: asNullableString(fm.assignee_member ?? fm.assigneeMember),
@@ -720,6 +722,7 @@ export function serializeReviewFile(record: ReviewRecord, extra: YamlObject = {}
     assignee: record.assignee,
     assignee_member: record.assigneeMember,
     team_task_id: record.teamTaskId,
+    session_id: record.sessionId,
     related: relatedToYaml(record.related),
     decision: decisionToYaml(record.decision),
     decisions: record.decisions.map(decisionToYaml),

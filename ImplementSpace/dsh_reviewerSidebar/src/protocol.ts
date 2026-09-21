@@ -42,6 +42,22 @@ export const REVIEW_TYPES: readonly ReviewType[] = [
   'test_issue',
 ]
 
+/**
+ * Short Chinese label per review type, used to prefix the review's 1:1
+ * lifecycle session title (`[建议]项目开发自动化工作流`, design/09 §4).
+ * Mirrors the client zh locale (`type.*`) so host-side naming and UI agree.
+ */
+export const REVIEW_TYPE_LABELS: Record<ReviewType, string> = {
+  question: '讨论',
+  suggestion: '建议',
+  bug: '缺陷',
+  design_issue: '设计',
+  requirement_issue: '需求',
+  implementation_issue: '实现',
+  test_issue: '测试',
+  exploration: '探索',
+}
+
 /** Review「关联方」attribute: which party (employee / agent) is associated with
  *  this review. An empty list means 自动 (auto-detect) — the default. */
 export type RelatedParty = 'employee_a' | 'agent_a'
@@ -300,6 +316,13 @@ export interface ReviewRecord {
   author: string
   /** Full opening-comment author identity; also the first thread participant. */
   authorRef: AuthorRef
+  /**
+   * The review's 1:1 lifecycle session (design/09): created and named
+   * `[类型]标题` when the review is created; archived on delete/close,
+   * unarchived on reopen. Distinct from `assignee` (the last dispatch target);
+   * null when unbound (degraded service, or a pre-binding legacy review).
+   */
+  sessionId: string | null
   /** Target session id of the last agent dispatch (session or teammate). */
   assignee: string | null
   /**

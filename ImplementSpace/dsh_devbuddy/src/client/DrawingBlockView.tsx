@@ -46,6 +46,8 @@ export function DrawingBlockView({ node, selected }: NodeviewPropsCompat): JSX.E
   const src = typeof node.attrs.src === 'string' ? node.attrs.src : ''
   const [thumbnail, setThumbnail] = useState<string | null>(null)
   const [blockState, setBlockState] = useState<BlockState>('loading')
+  /** Concrete failure reason, shown when the block lands in 'error'. */
+  const [detail, setDetail] = useState<string>('')
   const objectUrlRef = useRef<string | null>(null)
 
   const open = (): void => { context?.openDrawing(src) }
@@ -54,6 +56,7 @@ export function DrawingBlockView({ node, selected }: NodeviewPropsCompat): JSX.E
     if (context === null) return
     let cancelled = false
     setBlockState('loading')
+    setDetail('')
     setThumbnail(prev => {
       if (prev !== null) URL.revokeObjectURL(prev)
       return null
@@ -72,8 +75,11 @@ export function DrawingBlockView({ node, selected }: NodeviewPropsCompat): JSX.E
         objectUrlRef.current = url
         setThumbnail(url)
         setBlockState(url === null ? 'empty' : 'ready')
-      } catch {
-        if (!cancelled) setBlockState('error')
+      } catch (error) {
+        if (!cancelled) {
+          setBlockState('error')
+          setDetail(error instanceof Error && error.message !== '' ? error.message : String(error))
+        }
       }
     })()
     return () => {
@@ -114,7 +120,12 @@ export function DrawingBlockView({ node, selected }: NodeviewPropsCompat): JSX.E
       <span className="dbl-draw-glyph">✎</span>
       {blockState === 'ready' && thumbnail !== null
         ? <img className="dbl-draw-img" src={thumbnail} alt={src} draggable={false} />
-        : <span className="dbl-draw-label">{label}</span>}
+        : <span className="dbl-draw-label">
+            {label}
+            {blockState === 'error' && detail !== '' && (
+              <span className="dbl-draw-detail">{detail}</span>
+            )}
+          </span>}
       <span className="dbl-draw-name">{src}</span>
     </div>
   )

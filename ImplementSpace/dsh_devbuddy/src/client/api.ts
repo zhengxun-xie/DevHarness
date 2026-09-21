@@ -8,6 +8,8 @@
  */
 import { DEVBUDDY_API_PREFIX } from '../protocol.ts'
 import type {
+  AiDispatchRequest,
+  AiDispatchResult,
   CreateDrawingResult,
   DevBuddyState,
   DrawingView,
@@ -70,5 +72,8 @@ export const api = {
   },
   createDrawing(projectId: string): Promise<CreateDrawingResult> {
     return post('/drawing/create', { projectId })
+  },
+  aiDispatch(input: AiDispatchRequest): Promise<AiDispatchResult> {
+    return post('/ai/dispatch', input)
   },
 }

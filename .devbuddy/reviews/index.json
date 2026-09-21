@@ -1,8 +1,26 @@
 {
   "version": 1,
   "projectId": "p_6a127e8f",
-  "updatedAt": "2026-09-18T06:04:00.634Z",
+  "updatedAt": "2026-09-21T06:51:43.061Z",
   "reviews": [
+    {
+      "reviewId": "REV-0005",
+      "number": 2,
+      "document": "ProjectInfo.md",
+      "type": "suggestion",
+      "severity": "minor",
+      "status": "verifying",
+      "title": "项目开发自动化工作流",
+      "section": "ProjectInfo",
+      "lineStart": 9,
+      "lineEnd": 9,
+      "tags": [],
+      "relatedParties": [],
+      "author": "reviewer",
+      "assignee": "session-13c75d9c-9964-421d-bd65-61cd56a6cf5d",
+      "createdAt": "2026-09-21T01:47:23.012Z",
+      "updatedAt": "2026-09-21T02:29:44.597Z"
+    },
     {
       "reviewId": "REV-0004",
       "number": 1,

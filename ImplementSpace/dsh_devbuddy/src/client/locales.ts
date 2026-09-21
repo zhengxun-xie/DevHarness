@@ -45,6 +45,26 @@ export type DevBuddyKey =
   | 'toolbar.drawing'
   | 'toolbar.undo'
   | 'toolbar.redo'
+  | 'toolbar.ai'
+  | 'ai.polish'
+  | 'ai.translate'
+  | 'ai.summarize'
+  | 'ai.continue'
+  | 'ai.explain'
+  | 'ai.loading'
+  | 'ai.noSelection'
+  | 'ai.placeholder'
+  | 'ai.unavailable'
+  | 'ai.revise'
+  | 'ai.revisePlaceholder'
+  | 'ai.dialogOriginal'
+  | 'ai.dialogSuggestion'
+  | 'ai.cancel'
+  | 'ai.apply'
+  | 'ai.followUp'
+  | 'ai.followUpPlaceholder'
+  | 'ai.followUpSend'
+  | 'ai.regenerating'
   | 'draw.title'
   | 'draw.close'
   | 'draw.saving'
@@ -113,6 +133,26 @@ const en: Record<DevBuddyKey, string> = {
   'toolbar.drawing': 'Insert drawing',
   'toolbar.undo': 'Undo',
   'toolbar.redo': 'Redo',
+  'toolbar.ai': 'AI',
+  'ai.polish': 'Polish',
+  'ai.translate': 'Translate',
+  'ai.summarize': 'Summarize',
+  'ai.continue': 'Continue',
+  'ai.explain': 'Explain',
+  'ai.loading': 'AI is working…',
+  'ai.noSelection': 'Select text first',
+  'ai.placeholder': '[AI placeholder — channel not connected yet]',
+  'ai.unavailable': 'AI unavailable — could not get a reply (no session or model).',
+  'ai.revise': 'Revise',
+  'ai.revisePlaceholder': 'Type how to revise the selection… (Enter to send)',
+  'ai.dialogOriginal': 'Original',
+  'ai.dialogSuggestion': 'AI suggestion',
+  'ai.cancel': 'Cancel',
+  'ai.apply': 'Apply',
+  'ai.followUp': 'Follow up',
+  'ai.followUpPlaceholder': 'Tell AI how to adjust… (Enter to send)',
+  'ai.followUpSend': 'Send',
+  'ai.regenerating': 'AI is working…',
   'draw.title': 'Drawing',
   'draw.close': 'Done',
   'draw.saving': 'Saving…',
@@ -182,6 +222,26 @@ const zh: Record<DevBuddyKey, string> = {
   'toolbar.drawing': '插入画板',
   'toolbar.undo': '撤销',
   'toolbar.redo': '重做',
+  'toolbar.ai': 'AI',
+  'ai.polish': '润色',
+  'ai.translate': '翻译',
+  'ai.summarize': '总结',
+  'ai.continue': '续写',
+  'ai.explain': '解释',
+  'ai.loading': 'AI 处理中…',
+  'ai.noSelection': '请先选择文本',
+  'ai.placeholder': '[AI 占位 —— 通道尚未接入]',
+  'ai.unavailable': 'AI 不可用 —— 未能获得回复（无会话或模型）。',
+  'ai.revise': '修改',
+  'ai.revisePlaceholder': '输入修改意见…（回车提交）',
+  'ai.dialogOriginal': '原文',
+  'ai.dialogSuggestion': 'AI 建议',
+  'ai.cancel': '取消',
+  'ai.apply': '应用',
+  'ai.followUp': '追问',
+  'ai.followUpPlaceholder': '告诉 AI 如何修改…（回车发送）',
+  'ai.followUpSend': '发送',
+  'ai.regenerating': 'AI 处理中…',
   'draw.title': '画板',
   'draw.close': '完成',
   'draw.saving': '正在保存…',

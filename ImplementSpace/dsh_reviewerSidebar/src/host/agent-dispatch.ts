@@ -32,6 +32,7 @@ export interface SessionControllerLike {
     sessionId?: string
     agentPreset?: string
   }): Promise<{ sessionId?: string; id?: string } | void>
+  rename(req: { sessionId: string; title: string }): Promise<{ title?: string; seq?: number } | void>
   prompt(
     req: {
       requestId: string
@@ -64,6 +65,18 @@ export interface DispatchResult {
     | 'no-workspace'
     | 'no-session-controller'
     | 'controller-error'
+}
+
+/**
+ * Review↔session lifecycle operations the store invokes (design/09 §5).
+ * `AgentDispatcher` satisfies this structurally; the store depends on the
+ * interface so the wiring stays testable without the platform.
+ */
+export interface ReviewSessionLifecycle {
+  createNamedSession(workspaceId: string | null, title: string): Promise<string | null>
+  renameSession(sessionId: string, title: string): Promise<void>
+  archiveSession(sessionId: string): Promise<void>
+  unarchiveSession(sessionId: string): Promise<void>
 }
 
 // ---------------------------------------------------------------------------
@@ -437,6 +450,66 @@ export class AgentDispatcher {
       }
     } catch {
       return { ...base, reason: 'team-error' }
+    }
+  }
+
+  /**
+   * Create and name a review's 1:1 lifecycle session (design/09 §5).
+   * Returns the session id, or null when the platform is unavailable, the
+   * workspace is unbound, or creation/rename fails — the review still records
+   * sessionId:null and stays fully functional.
+   */
+  async createNamedSession(workspaceId: string | null, title: string): Promise<string | null> {
+    if (this.controller === null) return null
+    try {
+      const created = await this.controller.create(
+        workspaceId !== null && workspaceId !== ''
+          ? { workspaceId }
+          : {},
+      )
+      const createdId = (created as { sessionId?: string; id?: string } | null | undefined)?.sessionId
+        ?? (created as { sessionId?: string; id?: string } | null | undefined)?.id
+      if (typeof createdId !== 'string' || createdId === '') return null
+      try {
+        await this.controller.rename({ sessionId: createdId, title })
+      } catch {
+        // A failed rename leaves an unnamed session; still bind it.
+      }
+      return createdId
+    } catch {
+      return null
+    }
+  }
+
+  /** Rename an existing review session (title/type edited). Best-effort. */
+  async renameSession(sessionId: string, title: string): Promise<void> {
+    if (this.controller === null) return
+    try {
+      await this.controller.rename({ sessionId, title })
+    } catch {
+      // Silent — naming is cosmetic and must never break review edits.
+    }
+  }
+
+  /** Archive the review's session (delete/close). Best-effort. */
+  async archiveSession(sessionId: string): Promise<void> {
+    const registry = this.getWorkspaceRegistry()
+    if (registry === null || registry.archiveSession === undefined) return
+    try {
+      await registry.archiveSession(sessionId)
+    } catch {
+      // Silent.
+    }
+  }
+
+  /** Unarchive the review's session (reopen). Best-effort. */
+  async unarchiveSession(sessionId: string): Promise<void> {
+    const registry = this.getWorkspaceRegistry()
+    if (registry === null || registry.unarchiveSession === undefined) return
+    try {
+      await registry.unarchiveSession(sessionId)
+    } catch {
+      // Silent.
     }
   }
 

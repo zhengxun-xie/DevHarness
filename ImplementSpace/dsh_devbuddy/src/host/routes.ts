@@ -15,12 +15,15 @@ import { readFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse, OutgoingHttpHeaders } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import {
+  AI_ACTION_IDS,
   DEVBUDDY_API_PREFIX,
+  type AiDispatchRequest,
   type BindProjectRequest,
   type WriteDrawingRequest,
   type WriteNodeRequest,
 } from '../protocol.ts'
 import type { DevBuddyStore } from './store.ts'
+import type { AiSessionService } from './ai-session.ts'
 
 const MAX_BODY_BYTES = 16 * 1024 * 1024 // excalidraw scenes may embed images; 16 MiB cap
 
@@ -104,7 +107,7 @@ type Handler = (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<
  *   POST /api/devbuddy-left/drawing/create           { projectId } -> { src }
  *   GET  /api/devbuddy-left/excalidraw-bundle.js      -> text/javascript
  */
-export function devbuddyRoutes(store: DevBuddyStore, excalidrawBundlePath: string): WebRoute[] {
+export function devbuddyRoutes(store: DevBuddyStore, excalidrawBundlePath: string, aiService: AiSessionService): WebRoute[] {
   const routes: Array<{ method: string; path: string; handler: Handler }> = [
     {
       method: 'GET',
@@ -217,6 +220,48 @@ export function devbuddyRoutes(store: DevBuddyStore, excalidrawBundlePath: strin
         const body = await readBody(req) as { projectId?: unknown }
         if (typeof body.projectId !== 'string') { sendError(res, 400, 'projectId must be a string'); return }
         sendJson(res, 200, store.createDrawingView(body.projectId))
+      },
+    },
+    {
+      method: 'POST',
+      path: `${DEVBUDDY_API_PREFIX}/ai/dispatch`,
+      handler: async (req, res) => {
+        const body = await readBody(req) as Partial<AiDispatchRequest>
+        if (typeof body.projectId !== 'string' || typeof body.document !== 'string'
+          || typeof body.selection !== 'string' || typeof body.action !== 'string') {
+          sendError(res, 400, 'projectId, document, action and selection are required')
+          return
+        }
+        if (!(AI_ACTION_IDS as readonly string[]).includes(body.action)) {
+          sendError(res, 400, `unknown action: ${body.action}`)
+          return
+        }
+        if (body.followUp !== undefined && typeof body.followUp !== 'string') {
+          sendError(res, 400, 'followUp must be a string')
+          return
+        }
+        if (body.instruction !== undefined && typeof body.instruction !== 'string') {
+          sendError(res, 400, 'instruction must be a string')
+          return
+        }
+        if (body.contextBefore !== undefined && typeof body.contextBefore !== 'string') {
+          sendError(res, 400, 'contextBefore must be a string')
+          return
+        }
+        if (body.contextAfter !== undefined && typeof body.contextAfter !== 'string') {
+          sendError(res, 400, 'contextAfter must be a string')
+          return
+        }
+        sendJson(res, 200, await aiService.dispatch({
+          projectId: body.projectId,
+          document: body.document,
+          action: body.action as AiDispatchRequest['action'],
+          selection: body.selection,
+          contextBefore: body.contextBefore,
+          contextAfter: body.contextAfter,
+          followUp: body.followUp,
+          instruction: body.instruction,
+        }))
       },
     },
     {

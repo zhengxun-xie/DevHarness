@@ -14,6 +14,14 @@ export interface WorkspaceLike {
 
 export interface WorkspaceRegistryLike {
   list(): readonly WorkspaceLike[]
+  /**
+   * Move one session into the registry-global archive set (design/09 §2).
+   * Present on the real workspaceRegistry service; the review↔session binding
+   * treats absence as a silent no-op (degraded platform).
+   */
+  archiveSession?(sessionId: string): void | Promise<void>
+  /** Drop one session from the archive set (idempotent). */
+  unarchiveSession?(sessionId: string): void | Promise<void>
 }
 
 /** Live reader: every call re-lists, so new workspaces/sessions show up. */

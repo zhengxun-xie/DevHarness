@@ -253,3 +253,10 @@ Git History
 ```text
 Agent Context
 ```
+
+## 配套示意图
+
+详见：
+
+![[AI-Coding-模块：六大组件与协作关系.excalidraw]]
+

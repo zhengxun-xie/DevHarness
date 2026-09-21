@@ -83,12 +83,15 @@ export async function renderDrawingThumbnail(jsonText: string): Promise<string |
       ...scene.appState,
       exportBackground: true,
       exportWithDarkMode: false,
-      exportScale: 1,
     },
     files: scene.files,
     getDimensions: () => ({
       width: Math.round(width * scale),
       height: Math.round(height * scale),
+      // Crucial: getDimensions must also emit the shrink factor. Supplying
+      // smaller width/height alone shrinks the canvas but keeps the elements
+      // at full-scale coordinates, so only the top-left corner survives.
+      scale,
     }),
     mimeType: 'image/png',
   })

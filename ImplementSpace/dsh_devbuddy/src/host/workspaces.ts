@@ -28,6 +28,26 @@ export interface WorkspaceRegistryLike {
    * Optional so older hosts lacking it degrade gracefully.
    */
   create?(path: string, title?: string): Promise<unknown>
+  /**
+   * Registry-global archive set. Archiving hides a session from every grouping
+   * surface but keeps its `sessionIds` slot. Optional so older hosts degrade.
+   */
+  archivedSessionIds?: readonly string[]
+}
+
+/**
+ * Build an archive-membership test over the registry. Returns false when the
+ * registry (or its archive set) is unavailable, so an unknown state never
+ * invalidates an existing binding.
+ */
+export function workspaceArchiveChecker(registry: WorkspaceRegistryLike): (sessionId: string) => boolean {
+  return (sessionId: string) => {
+    try {
+      return registry.archivedSessionIds?.includes(sessionId) ?? false
+    } catch {
+      return false
+    }
+  }
 }
 
 /**

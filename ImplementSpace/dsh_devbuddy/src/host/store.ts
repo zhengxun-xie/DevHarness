@@ -58,6 +58,7 @@ export class DevBuddyStore {
   private readonly registryPath: string
   private workspaceProvider: WorkspaceProvider | null = null
   private workspaceEnsurer: WorkspaceEnsurer | null = null
+  private workspaceArchiveChecker: ((sessionId: string) => boolean) | null = null
 
   constructor(dshHomeDir: string = dshHome()) {
     this.registryPath = resolve(dshHomeDir, 'devbuddy', 'registry.json')
@@ -71,6 +72,16 @@ export class DevBuddyStore {
   /** Wire the idempotent workspace-ensure action (called from ctx.inject). */
   attachWorkspaceEnsurer(ensurer: WorkspaceEnsurer): void {
     this.workspaceEnsurer = ensurer
+  }
+
+  /** Wire the archive-membership test (called from ctx.inject). */
+  attachWorkspaceArchiveChecker(checker: (sessionId: string) => boolean): void {
+    this.workspaceArchiveChecker = checker
+  }
+
+  /** Whether a session is archived. False when the registry is unavailable. */
+  isSessionArchived(sessionId: string): boolean {
+    return this.workspaceArchiveChecker?.(sessionId) ?? false
   }
 
   /** All DSH workspaces for the binding picker; [] while the service is absent. */
@@ -295,6 +306,17 @@ export class DevBuddyStore {
       return current
     })
     return this.state()
+  }
+
+  /**
+   * Resolve the context the document-scoped AI session needs: the project's
+   * absolute path plus its linked workspace id (null when unbound — the AI
+   * session then falls back to create-by-cwd). Throws for an unknown project.
+   */
+  resolveAiContext(projectId: string): { path: string; workspaceId: string | null } {
+    const registry = this.load()
+    const project = this.requireProject(registry, projectId)
+    return { path: project.path, workspaceId: this.resolveWorkspace(project)?.workspaceId ?? null }
   }
 
   /** Read one node file for one project. */

@@ -53,9 +53,13 @@ import {
   useState,
 } from 'react'
 import type { ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { EditorContent, useEditor } from '@tiptap/react'
+import { Extension } from '@tiptap/core'
 import type { Editor } from '@tiptap/core'
 import type { ChainedCommands } from '@tiptap/core'
+import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
+import type { EditorState, Transaction } from '@tiptap/pm/state'
 import { StarterKit } from '@tiptap/starter-kit'
 import { TableCell, TableHeader, TableRow, Table } from '@tiptap/extension-table'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
@@ -63,6 +67,7 @@ import { Placeholder } from '@tiptap/extension-placeholder'
 import { Markdown } from '@tiptap/markdown'
 
 import {
+  lfToPmPos,
   pmPosToLf,
   type MarkHandlers,
 } from './doc-alignment.ts'
@@ -72,6 +77,7 @@ import {
   type DrawingBlockContextValue,
 } from './DrawingBlockView.tsx'
 import { ExcalidrawModal } from './ExcalidrawModal.tsx'
+import { AiSuggestionModal } from './AiSuggestionModal.tsx'
 import { api } from './api.ts'
 import {
   ReviewMarksExtension,
@@ -85,6 +91,55 @@ import {
   type DocumentReviewAnchor,
 } from './reviewer-bridge.ts'
 import type { GutterBadgeItem, SelectionRectInfo } from './LineNumberTextarea.tsx'
+
+/**
+ * Repair structurally-empty list items.
+ *
+ * The Markdown parser (marked) turns an empty list item ("2. ") into a
+ * listItem with NO children — no paragraph inside. Such a node has
+ * `inlineContent === false`, so ProseMirror cannot place a text selection
+ * inside it and clicking it drops the caret into the next block instead.
+ * This plugin re-inserts an empty paragraph into any content-less
+ * listItem/taskItem after every transaction and once on create.
+ */
+function buildEmptyListItemFix(state: EditorState): Transaction | null {
+  const fixes: number[] = []
+  state.doc.descendants((node, pos) => {
+    if ((node.type.name === 'listItem' || node.type.name === 'taskItem') && node.content.size === 0) {
+      fixes.push(pos)
+    }
+  })
+  if (fixes.length === 0) return null
+  const paragraph = state.schema.nodes.paragraph
+  if (paragraph === undefined) return null
+  const tr = state.tr
+  // Insert from the last position backwards so earlier offsets stay valid.
+  for (let i = fixes.length - 1; i >= 0; i--) {
+    tr.insert(fixes[i] + 1, paragraph.create())
+  }
+  tr.setMeta('addToHistory', false)
+  return tr
+}
+
+const EmptyListItemFix = Extension.create({
+  name: 'emptyListItemFix',
+
+  onCreate() {
+    const tr = buildEmptyListItemFix(this.editor.state)
+    if (tr !== null) this.editor.view.dispatch(tr)
+  },
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey('emptyListItemFix'),
+        appendTransaction: (_transactions, _oldState, newState) => {
+          return buildEmptyListItemFix(newState)
+        },
+      }),
+    ]
+  },
+})
 
 /** Toolbar tooltip + prompt text, localized by the parent. */
 export interface RichTextToolbarLabels {
@@ -115,11 +170,36 @@ export interface RichTextToolbarLabels {
   drawEmpty: string
   drawMissing: string
   drawError: string
+  /** AI quick-action button + menu items. */
+  ai: string
+  aiPolish: string
+  aiTranslate: string
+  aiSummarize: string
+  aiContinue: string
+  aiExplain: string
+  aiLoading: string
+  aiNoSelection: string
+  aiPlaceholder: string
+  aiUnavailable: string
+  /** Second popover row: the user's own revision instruction. */
+  aiRevise: string
+  aiRevisePlaceholder: string
+  /** AI suggestion preview modal copy. */
+  aiDialogOriginal: string
+  aiDialogSuggestion: string
+  aiCancel: string
+  aiApply: string
+  aiFollowUp: string
+  aiFollowUpPlaceholder: string
+  aiFollowUpSend: string
+  aiRegenerating: string
 }
 
 export interface RichTextEditorProps {
   /** Project id, needed for embedded drawing file operations. */
   projectId: string
+  /** Node file name (e.g. "CoreRequirements.md") — the AI session's identity. */
+  documentName: string
   /** Markdown draft — the single source of truth (mirrors LineNumberTextarea). */
   value: string
   /** Emitted with `editor.getMarkdown()` (debounced) on user edits. */
@@ -143,6 +223,8 @@ export interface RichTextEditorProps {
   closeLabel: string
   /** Toolbar tooltips / link prompt copy. */
   toolbarLabels: RichTextToolbarLabels
+  /** LF offset to restore caret position after a mode switch (null = skip). */
+  restoreCaret?: number | null
 }
 
 export interface RichTextEditorHandle {
@@ -156,6 +238,47 @@ export interface RichTextEditorHandle {
    * alignment cannot resolve the current selection.
    */
   getSelectionRange(): { start: number; end: number } | null
+}
+
+/** AI quick-action identifiers. 'custom' is the popover's own revision row. */
+type AiAction = 'polish' | 'translate' | 'summarize' | 'continue' | 'explain' | 'custom'
+
+/** Actions that replace the current selection vs. insert after it. */
+const AI_REPLACE_ACTIONS = new Set<AiAction>(['polish', 'translate', 'custom'])
+
+/**
+ * How much surrounding plain text to send with each request. The agent needs
+ * the document around the caret to continue/explain/summarize meaningfully;
+ * the window keeps the prompt bounded on long documents.
+ */
+const AI_CONTEXT_BEFORE = 4000
+const AI_CONTEXT_AFTER = 2000
+
+/** One AI request: the action, the target text, and its surrounding context. */
+interface AiAssistRequest {
+  projectId: string
+  document: string
+  action: AiAction
+  selection: string
+  contextBefore?: string
+  contextAfter?: string
+  followUp?: string
+  /** The user's own revision instruction ('custom' action only). */
+  instruction?: string
+}
+
+/**
+ * Run one AI action against the document's long-lived session (host-side).
+ * The host creates-or-reuses the "[AI优化]<document>" session and collects the
+ * assistant reply, so consecutive turns (incl. follow-ups) keep context.
+ * Throws when the channel is unavailable or no reply arrived.
+ */
+async function aiAssist(request: AiAssistRequest): Promise<string> {
+  const result = await api.aiDispatch(request)
+  if (!result.delivered || result.text === null || result.text === '') {
+    throw new Error('ai-unavailable')
+  }
+  return result.text
 }
 
 /** Debounce window for editor.getMarkdown() → onChange. */
@@ -183,15 +306,22 @@ interface ToolButtonSpec {
  * Persistent formatting toolbar for the rich-text surface. Compact single
  * row sized for the narrow sidebar: block-type select (正文/H1-H3) +
  * bold/italic/strike/code + bullet/ordered/task list + quote/code-block +
- * link/table + undo/redo. Each command runs on `editor.chain().focus()` so
- * clicking a button returns focus to the editor and restores its selection.
- * The parent re-renders the editor on every transaction (tick state), so
- * `isActive` states and undo availability stay current.
+ * link/table/drawing + AI quick-action + undo/redo. The AI button opens a
+ * two-row popover: the fixed quick actions, then a free-form revision row
+ * (修改意见 input + 修改 button) that runs the AI on the current selection —
+ * or, when nothing is selected, on the document at the caret.
+ * Each command runs on
+ * `editor.chain().focus()` so clicking a button returns focus to the editor
+ * and restores its selection. The parent re-renders the editor on every
+ * transaction (tick state), so `isActive` states and undo availability stay
+ * current.
  */
-function RichTextToolbar({ editor, labels, onInsertDrawing }: {
+function RichTextToolbar({ editor, labels, onInsertDrawing, projectId, documentName }: {
   editor: Editor
   labels: RichTextToolbarLabels
   onInsertDrawing: () => void
+  projectId: string
+  documentName: string
 }): ReactNode {
   const chain = (): ChainedCommands => editor.chain().focus()
 
@@ -221,6 +351,171 @@ function RichTextToolbar({ editor, labels, onInsertDrawing }: {
     onClick: () => void,
     disabled = false,
   ): ToolButtonSpec => ({ key, title, glyph, active, disabled, onClick })
+
+  // --- AI quick-action popover state ---
+  const [aiMenuOpen, setAiMenuOpen] = useState(false)
+  const [aiRunning, setAiRunning] = useState<AiAction | null>(null)
+  const [aiError, setAiError] = useState<string | null>(null)
+  /** Second row: the user's own revision instruction (修改意见). */
+  const [aiInstruction, setAiInstruction] = useState('')
+  /** Fixed viewport coordinates of the portaled menu. */
+  const [aiMenuPos, setAiMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  const aiBtnRef = useRef<HTMLButtonElement | null>(null)
+  const aiMenuRef = useRef<HTMLDivElement | null>(null)
+
+  /** Recompute the menu position from the button's viewport rect. */
+  const updateAiMenuPos = useCallback((): void => {
+    const btn = aiBtnRef.current
+    if (btn === null) return
+    const rect = btn.getBoundingClientRect()
+    // Keep the menu inside the viewport: clamp the right edge; flip above the
+    // button when there isn't enough room below. Two rows now: quick actions +
+    // the revision input row.
+    const MENU_W = 340
+    const MENU_H = 76
+    const x = Math.max(4, Math.min(rect.left, window.innerWidth - MENU_W - 4))
+    const below = rect.bottom + 2
+    const y = below + MENU_H <= window.innerHeight ? below : Math.max(4, rect.top - MENU_H - 2)
+    setAiMenuPos({ x, y })
+  }, [])
+
+  // Open: compute initial position; keep aligned on scroll / resize.
+  useEffect(() => {
+    if (!aiMenuOpen) return
+    updateAiMenuPos()
+    // Capture phase: scroll may happen inside any panel container.
+    window.addEventListener('scroll', updateAiMenuPos, true)
+    window.addEventListener('resize', updateAiMenuPos)
+    return () => {
+      window.removeEventListener('scroll', updateAiMenuPos, true)
+      window.removeEventListener('resize', updateAiMenuPos)
+    }
+  }, [aiMenuOpen, updateAiMenuPos])
+
+  // Close popover on outside click / Escape.
+  useEffect(() => {
+    if (!aiMenuOpen) return
+    const onDown = (e: MouseEvent): void => {
+      const target = e.target as Node
+      if (aiBtnRef.current !== null && aiBtnRef.current.contains(target)) return
+      if (aiMenuRef.current !== null && aiMenuRef.current.contains(target)) return
+      setAiMenuOpen(false)
+      setAiError(null)
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') { setAiMenuOpen(false); setAiError(null) }
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [aiMenuOpen])
+
+  // --- AI suggestion preview modal state ---
+  const [aiModal, setAiModal] = useState<{
+    action: AiAction
+    from: number
+    to: number
+    original: string
+    suggestion: string
+  } | null>(null)
+
+  const runAiAction = useCallback(async (action: AiAction, instruction?: string): Promise<void> => {
+    setAiMenuOpen(false)
+    setAiError(null)
+    const custom = instruction?.trim() ?? ''
+    // The revision row is a no-op without a real instruction; its button and
+    // Enter handler are disabled in that state, this is the second line.
+    if (action === 'custom' && custom === '') return
+    const { from, to } = editor.state.selection
+    const doc = editor.state.doc
+    const selectedText = doc.textBetween(from, to, '\n')
+    // 'continue' and the revision row's 'custom' work at the cursor; the
+    // fixed selection actions need a selection.
+    if (action !== 'continue' && action !== 'custom' && selectedText === '') {
+      setAiError(labels.aiNoSelection)
+      return
+    }
+    // Ship the surrounding document text: without it the agent has no context
+    // to continue/explain/summarize against ('continue' would only see the
+    // selection, which is empty when the caret is simply placed).
+    const contextBefore = doc.textBetween(0, from, '\n').slice(-AI_CONTEXT_BEFORE)
+    const contextAfter = doc.textBetween(to, doc.content.size, '\n').slice(0, AI_CONTEXT_AFTER)
+    setAiRunning(action)
+    try {
+      const result = await aiAssist({
+        projectId,
+        document: documentName,
+        action,
+        selection: selectedText,
+        contextBefore,
+        contextAfter,
+        ...(action === 'custom' ? { instruction: custom } : {}),
+      })
+      if (editor.isDestroyed) return
+      // Preview first: open the suggestion modal instead of mutating the doc.
+      setAiModal({ action, from, to, original: selectedText, suggestion: result })
+    } catch (error) {
+      // Route-side rejections carry a concrete reason (e.g. 'unknown action');
+      // append it after the generic line instead of swallowing it.
+      const detail = error instanceof Error && error.message !== '' && error.message !== 'ai-unavailable'
+        ? error.message
+        : ''
+      setAiError(detail === '' ? labels.aiUnavailable : `${labels.aiUnavailable}（${detail}）`)
+    } finally {
+      setAiRunning(null)
+    }
+  }, [editor, projectId, documentName, labels.aiNoSelection, labels.aiUnavailable])
+
+  /** Submit the revision row: run the AI on the selection (or at the caret
+   *  when nothing is selected) with the typed instruction. */
+  const runCustomRevision = useCallback((): void => {
+    const instruction = aiInstruction.trim()
+    if (instruction === '') return
+    setAiInstruction('')
+    void runAiAction('custom', instruction)
+  }, [aiInstruction, runAiAction])
+
+  /** Apply: write the user's final (possibly edited) suggestion back to the doc. */
+  const applyAiSuggestion = useCallback((finalText: string): void => {
+    const modal = aiModal
+    setAiModal(null)
+    if (modal === null || editor.isDestroyed) return
+    const chain = editor.chain().focus()
+    if (AI_REPLACE_ACTIONS.has(modal.action)) {
+      // Replace the captured selection with the final text.
+      chain.setTextSelection({ from: modal.from, to: modal.to }).deleteSelection()
+      if (finalText !== '') chain.insertContent(finalText)
+    } else if (finalText !== '') {
+      // Insert after the selection / cursor.
+      chain.insertContentAt(modal.to, finalText)
+    }
+    chain.run()
+  }, [aiModal, editor])
+
+  /** Follow-up: re-run the AI with an extra instruction, return the new text. */
+  const followUpAi = useCallback(async (instruction: string): Promise<string> => {
+    if (aiModal === null) throw new Error('AI modal closed')
+    // The session already holds the prior turn (with its context), so a
+    // follow-up only needs the instruction.
+    return aiAssist({
+      projectId,
+      document: documentName,
+      action: aiModal.action,
+      selection: aiModal.original,
+      followUp: instruction,
+    })
+  }, [aiModal, projectId, documentName])
+
+  const aiMenuItems: { action: AiAction; label: string }[] = [
+    { action: 'polish', label: labels.aiPolish },
+    { action: 'translate', label: labels.aiTranslate },
+    { action: 'summarize', label: labels.aiSummarize },
+    { action: 'continue', label: labels.aiContinue },
+    { action: 'explain', label: labels.aiExplain },
+  ]
 
   const groups: ToolButtonSpec[][] = [
     [
@@ -261,6 +556,7 @@ function RichTextToolbar({ editor, labels, onInsertDrawing }: {
   ]
 
   return (
+    <Fragment>
     <div className="dbl-rt-toolbar" role="toolbar">
       <select
         className="dbl-rt-tselect"
@@ -274,30 +570,159 @@ function RichTextToolbar({ editor, labels, onInsertDrawing }: {
         <option value="h2">H2</option>
         <option value="h3">H3</option>
       </select>
-      {groups.map((group, gi) => (
-        <Fragment key={gi}>
-          <span className="dbl-rt-tsep" />
-          <span className="dbl-rt-tgroup">
-            {group.map(spec => (
-              <button
-                key={spec.key}
-                type="button"
-                className="dbl-rt-tbtn"
-                title={spec.title}
-                aria-label={spec.title}
-                aria-pressed={spec.active}
-                data-active={spec.active}
-                disabled={spec.disabled}
-                // eslint-disable-next-line react/jsx-no-bind
-                onClick={spec.onClick}
-              >
-                {spec.glyph}
-              </button>
-            ))}
-          </span>
-        </Fragment>
-      ))}
+      {groups.map((group, gi) => {
+        // Insert AI button before the undo/redo group.
+        if (gi === groups.length - 1) {
+          return (
+            <Fragment key={gi}>
+              <span className="dbl-rt-tsep" />
+              <span className="dbl-rt-tgroup">
+                <button
+                  ref={aiBtnRef}
+                  type="button"
+                  className="dbl-rt-tbtn dbl-rt-ai-btn"
+                  title={labels.ai}
+                  aria-label={labels.ai}
+                  aria-haspopup="menu"
+                  aria-expanded={aiMenuOpen}
+                  data-active={aiMenuOpen}
+                  disabled={aiRunning !== null}
+                  // eslint-disable-next-line react/jsx-no-bind
+                  onClick={() => { setAiMenuOpen(v => !v); setAiError(null) }}
+                >
+                  {aiRunning !== null ? labels.aiLoading : labels.ai}
+                </button>
+              </span>
+              <span className="dbl-rt-tsep" />
+              <span className="dbl-rt-tgroup">
+                {group.map(spec => (
+                  <button
+                    key={spec.key}
+                    type="button"
+                    className="dbl-rt-tbtn"
+                    title={spec.title}
+                    aria-label={spec.title}
+                    aria-pressed={spec.active}
+                    data-active={spec.active}
+                    disabled={spec.disabled}
+                    // eslint-disable-next-line react/jsx-no-bind
+                    onClick={spec.onClick}
+                  >
+                    {spec.glyph}
+                  </button>
+                ))}
+              </span>
+            </Fragment>
+          )
+        }
+        return (
+          <Fragment key={gi}>
+            <span className="dbl-rt-tsep" />
+            <span className="dbl-rt-tgroup">
+              {group.map(spec => (
+                <button
+                  key={spec.key}
+                  type="button"
+                  className="dbl-rt-tbtn"
+                  title={spec.title}
+                  aria-label={spec.title}
+                  aria-pressed={spec.active}
+                  data-active={spec.active}
+                  disabled={spec.disabled}
+                  // eslint-disable-next-line react/jsx-no-bind
+                  onClick={spec.onClick}
+                >
+                  {spec.glyph}
+                </button>
+              ))}
+            </span>
+          </Fragment>
+        )
+      })}
     </div>
+    {aiError !== null && (
+      <div className="dbl-rt-ai-err dbl-rt-ai-err-inline">{aiError}</div>
+    )}
+    {aiMenuOpen && createPortal(
+      <div
+        ref={aiMenuRef}
+        className="dbl-rt-ai-menu"
+        role="menu"
+        style={{ left: aiMenuPos.x, top: aiMenuPos.y }}
+      >
+        <div className="dbl-rt-ai-row" role="presentation">
+          {aiMenuItems.map(item => (
+            <button
+              key={item.action}
+              type="button"
+              role="menuitem"
+              className="dbl-rt-ai-item"
+              disabled={aiRunning !== null}
+              // eslint-disable-next-line react/jsx-no-bind
+              onClick={() => { void runAiAction(item.action) }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        {/* Second row: free-form revision instruction + 修改 button. */}
+        <div className="dbl-rt-ai-row dbl-rt-ai-custom" role="presentation">
+          <input
+            type="text"
+            className="dbl-rt-ai-input"
+            value={aiInstruction}
+            placeholder={labels.aiRevisePlaceholder}
+            aria-label={labels.aiRevisePlaceholder}
+            disabled={aiRunning !== null}
+            // eslint-disable-next-line react/jsx-no-bind
+            onChange={event => setAiInstruction(event.target.value)}
+            // eslint-disable-next-line react/jsx-no-bind
+            onKeyDown={event => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                runCustomRevision()
+              }
+            }}
+          />
+          <button
+            type="button"
+            role="menuitem"
+            className="dbl-rt-ai-item dbl-rt-ai-send"
+            disabled={aiRunning !== null || aiInstruction.trim() === ''}
+            // eslint-disable-next-line react/jsx-no-bind
+            onClick={runCustomRevision}
+          >
+            {labels.aiRevise}
+          </button>
+        </div>
+      </div>,
+      document.body,
+    )}
+    {aiModal !== null && createPortal(
+      <AiSuggestionModal
+        actionLabel={aiModal.action === 'custom'
+          ? labels.aiRevise
+          : (aiMenuItems.find(item => item.action === aiModal.action)?.label ?? labels.ai)}
+        original={aiModal.original}
+        initialSuggestion={aiModal.suggestion}
+        labels={{
+          original: labels.aiDialogOriginal,
+          suggestion: labels.aiDialogSuggestion,
+          cancel: labels.aiCancel,
+          apply: labels.aiApply,
+          followUp: labels.aiFollowUp,
+          followUpPlaceholder: labels.aiFollowUpPlaceholder,
+          followUpSend: labels.aiFollowUpSend,
+          regenerating: labels.aiRegenerating,
+          error: labels.aiUnavailable,
+        }}
+        onFollowUp={followUpAi}
+        onApply={applyAiSuggestion}
+        onCancel={() => setAiModal(null)}
+      />,
+      document.body,
+    )}
+    </Fragment>
   )
 }
 
@@ -311,6 +736,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
   function RichTextEditor(props, ref) {
     const {
       projectId,
+      documentName,
       value,
       onChange,
       reviewRows,
@@ -323,6 +749,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       addReviewLabel,
       closeLabel,
       toolbarLabels,
+      restoreCaret,
     } = props
 
     // --- Embedded drawing modal: open reference + thumbnail refresh bump ---
@@ -365,6 +792,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         TableHeader,
         TaskList,
         TaskItem.configure({ nested: true }),
+        EmptyListItemFix,
         Placeholder.configure({ placeholder: '' }),
         Markdown.configure({ markedOptions: { gfm: true } }),
         DrawingBlock,
@@ -377,6 +805,36 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       contentType: 'markdown',
       editorProps: {
         attributes: { class: 'dbl-rt-editor-content' },
+        /**
+         * Keep the caret where the user clicked on empty blocks. ProseMirror
+         * delegates placement to the browser, which drops the caret into the
+         * next block when the clicked block is empty (empty list items, empty
+         * paragraphs). Intercept when the resolved position sits in — or
+         * directly wraps — an empty textblock and clamp the selection there.
+         */
+        handleClick(view, pos) {
+          const $pos = view.state.doc.resolve(pos)
+          for (let depth = $pos.depth; depth > 0; depth--) {
+            const node = $pos.node(depth)
+            if (node.type.isTextblock) {
+              // Inside a textblock: only take over when it is empty.
+              if (node.content.size > 0) return false
+              const sel = TextSelection.create(view.state.doc, $pos.before(depth) + 1)
+              view.dispatch(view.state.tr.setSelection(sel).setMeta('pointer', true))
+              return true
+            }
+            // At a wrapper boundary (e.g. a listItem): if its only child is an
+            // empty textblock, place the caret inside that child.
+            const first = node.firstChild
+            if (node.childCount === 1 && first !== null &&
+                first.type.isTextblock && first.content.size === 0) {
+              const sel = TextSelection.create(view.state.doc, $pos.before(depth) + 2)
+              view.dispatch(view.state.tr.setSelection(sel).setMeta('pointer', true))
+              return true
+            }
+          }
+          return false
+        },
       },
     })
 
@@ -393,6 +851,31 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       // text. (This also bumps decorations.)
       refreshReviewMarksModel(editor)
     }, [editor, value])
+
+    // --- Restore caret after a mode switch (source → richtext) ---
+    // The LF offset saved by NodeCard before the switch is converted to a PM
+    // position via the alignment model, then the selection is set and scrolled
+    // into view. Runs once per mount when `restoreCaret` is a non-null number.
+    useEffect(() => {
+      if (editor === null) return
+      if (restoreCaret === null || restoreCaret === undefined) return
+      const lf = restoreCaret
+      const raf = requestAnimationFrame(() => {
+        if (editor.isDestroyed) return
+        // Build the alignment model synchronously so lfToPmPos can resolve.
+        refreshReviewMarksModel(editor)
+        const model = editor.storage.reviewMarks?.model ?? null
+        if (model === null) return
+        const pmPos = lfToPmPos(model, lf)
+        if (pmPos === null) return
+        editor.chain().focus().setTextSelection(pmPos).run()
+        // Scroll the restored position into view.
+        const view = editor.view
+        view.dispatch(view.state.tr.scrollIntoView())
+      })
+      return () => cancelAnimationFrame(raf)
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [editor])
 
     // --- Internal → external: debounce editor.getMarkdown() → onChange ---
     const emitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -572,7 +1055,12 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     useImperativeHandle(ref, (): RichTextEditorHandle => ({
       isFocused: () => editor !== null && editor.isFocused,
       getSelectionRange: () => {
-        if (editor === null || !editor.isFocused || editor.view.composing) return null
+        // NOTE: no isFocused check here — the ProseMirror selection state
+        // persists after blur, and the mode-switch caret save must read it
+        // even though clicking the 源码/富文本 button has already unfocused
+        // the editor. Callers that require an active caret (the Reviewer
+        // handshake) check isFocused() themselves before calling.
+        if (editor === null) return null
         const model = editor.storage.reviewMarks?.model ?? null
         if (model === null) return null
         const { from, to } = editor.state.selection
@@ -597,6 +1085,8 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
             editor={editor}
             labels={toolbarLabels}
             onInsertDrawing={handleInsertDrawing}
+            projectId={projectId}
+            documentName={documentName}
           />
         )}
         <EditorContent editor={editor} />

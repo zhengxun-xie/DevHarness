@@ -503,7 +503,7 @@ export function reviewerRoutes(store: ReviewStore, dispatcher: AgentDispatcher):
         const dispatch = await dispatcher.send({
           projectId: body.projectId,
           instruction: context.instruction,
-          sessionId: body.sessionId ?? null,
+          sessionId: body.sessionId ?? store.reviewSessionId(body.projectId, body.reviewId),
           dryRun: body.dryRun === true,
           workspaces: store.snapshotWorkspaces(),
         })

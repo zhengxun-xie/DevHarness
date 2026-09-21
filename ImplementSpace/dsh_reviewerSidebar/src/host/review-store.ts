@@ -37,7 +37,8 @@ import {
   isReopen,
   isTerminal,
 } from './lifecycle.ts'
-import { REVIEW_TYPES, SEVERITIES, normalizeRelatedParties } from '../protocol.ts'
+import type { ReviewSessionLifecycle } from './agent-dispatch.ts'
+import { REVIEW_TYPES, REVIEW_TYPE_LABELS, SEVERITIES, normalizeRelatedParties } from '../protocol.ts'
 import type {
   AnchorResolution,
   AppendRequest,
@@ -170,6 +171,7 @@ function decisionNumber(id: string): number {
 
 export class ReviewStore {
   private workspaceProvider: WorkspaceProvider | null = null
+  private sessionLifecycle: ReviewSessionLifecycle | null = null
   private readonly sequenceLocks = new Map<string, Promise<unknown>>()
   private readonly indexTimers = new Map<string, NodeJS.Timeout>()
   private readonly pendingRunsByRpc = new Map<string, PendingAgentRun>()
@@ -185,6 +187,11 @@ export class ReviewStore {
     this.workspaceProvider = provider
   }
 
+  /** Bind the review↔session lifecycle adapter (design/09); null = degrade. */
+  attachSessionLifecycle(lifecycle: ReviewSessionLifecycle): void {
+    this.sessionLifecycle = lifecycle
+  }
+
   private workspaces(): readonly WorkspaceInfo[] {
     return this.workspaceProvider !== null ? this.workspaceProvider() : []
   }
@@ -192,6 +199,45 @@ export class ReviewStore {
   /** Live workspace list for agent dispatch resolution. */
   snapshotWorkspaces(): readonly WorkspaceInfo[] {
     return this.workspaces()
+  }
+
+  /** The review's 1:1 lifecycle session id (design/09), or null. */
+  reviewSessionId(projectId: string, reviewId: string): string | null {
+    try {
+      const { project } = this.useProject(projectId)
+      return this.readRecord(project, reviewId).record.sessionId
+    } catch {
+      return null
+    }
+  }
+
+  /** Create + name the review's 1:1 lifecycle session. Never throws. */
+  private async openReviewSession(project: ProjectRecord, record: ReviewRecord): Promise<string | null> {
+    const lifecycle = this.sessionLifecycle
+    if (lifecycle === null) return null
+    const workspace = resolveWorkspace(project, this.workspaces())
+    if (workspace === null) return null
+    try {
+      return await lifecycle.createNamedSession(workspace.id, reviewSessionTitle(record))
+    } catch {
+      return null
+    }
+  }
+
+  private async archiveReviewSession(sessionId: string | null): Promise<void> {
+    if (sessionId === null || sessionId === '' || this.sessionLifecycle === null) return
+    try { await this.sessionLifecycle.archiveSession(sessionId) } catch { /* silent */ }
+  }
+
+  private async unarchiveReviewSession(sessionId: string | null): Promise<void> {
+    if (sessionId === null || sessionId === '' || this.sessionLifecycle === null) return
+    try { await this.sessionLifecycle.unarchiveSession(sessionId) } catch { /* silent */ }
+  }
+
+  private async renameReviewSession(record: ReviewRecord): Promise<void> {
+    const sessionId = record.sessionId
+    if (sessionId === null || sessionId === '' || this.sessionLifecycle === null) return
+    try { await this.sessionLifecycle.renameSession(sessionId, reviewSessionTitle(record)) } catch { /* silent */ }
   }
 
   // -------------------------------------------------------------------------
@@ -370,6 +416,7 @@ export class ReviewStore {
       target: anchor,
       author: authorRef.id,
       authorRef,
+      sessionId: null,
       assignee: null,
       assigneeMember: null,
       teamTaskId: null,
@@ -396,6 +443,9 @@ export class ReviewStore {
         }],
       },
     }
+    // Bind the review's 1:1 lifecycle session before first persist (design/09
+    // §5): create + name `[类型]标题`, best-effort (null on degradation).
+    record.sessionId = await this.openReviewSession(project, record)
     this.writeWithSlug(project.path, record)
     this.scheduleIndexRebuild(project)
     return { review: record }
@@ -448,6 +498,7 @@ export class ReviewStore {
       throw new ValidationError('nothing to edit: provide at least one editable field')
     }
     let wordingEdited = false
+    let sessionNameEdited = false
     if (input.comment !== undefined) {
       const comment = input.comment.trim()
       if (comment === '') throw new ValidationError('comment must be non-empty')
@@ -466,6 +517,7 @@ export class ReviewStore {
     if (input.title !== undefined) {
       const title = typeof input.title === 'string' ? input.title.trim() : ''
       parsed.record.title = title === '' ? null : title
+      sessionNameEdited = true
     }
     if (input.severity !== undefined) {
       if (!SEVERITIES.includes(input.severity)) {
@@ -478,6 +530,7 @@ export class ReviewStore {
         throw new ValidationError(`unknown review type: ${String(input.type)}`)
       }
       parsed.record.type = input.type
+      sessionNameEdited = true
     }
     if (input.tags !== undefined) {
       if (!Array.isArray(input.tags)) throw new ValidationError('tags must be an array of strings')
@@ -497,6 +550,8 @@ export class ReviewStore {
     }
     parsed.record.updatedAt = at
     const sha = this.writeWithSlug(project.path, parsed.record, parsed.extra)
+    // Rename the lifecycle session when title/type changed (design/09 §4).
+    if (sessionNameEdited) await this.renameReviewSession(parsed.record)
     this.scheduleIndexRebuild(project)
     return { review: parsed.record, sha }
   }
@@ -625,6 +680,13 @@ export class ReviewStore {
     // Reopen clears the terminal timestamp; decisions, thread and
     // duplicatedOf all survive (spec §5.2).
     if (isReopen({ from, to })) parsed.record.resolvedAt = null
+    // Session lifecycle sync (design/09 §5): entering a terminal state
+    // archives the review's session; reopening unarchives it. Best-effort.
+    if (isTerminal(to)) {
+      await this.archiveReviewSession(parsed.record.sessionId)
+    } else if (isReopen({ from, to })) {
+      await this.unarchiveReviewSession(parsed.record.sessionId)
+    }
     // Evidence chain (design/06 §8): backfill commit trailers when the review
     // is entering a verification-bearing state. Best effort — never blocks.
     if (to === 'implementing' || to === 'verifying' || to === 'resolved' || to === 'accepted') {
@@ -838,6 +900,9 @@ export class ReviewStore {
     for (const file of files) {
       try { unlinkSync(file.file) } catch { /* best effort */ }
     }
+    // Deletion closes the review's lifecycle session (design/09 §5): archive
+    // (the platform's soft-delete) so it leaves the active session area.
+    await this.archiveReviewSession(parsed.record.sessionId)
     this.scheduleIndexRebuild(project)
     return { removed: true }
   }
@@ -1356,6 +1421,29 @@ export class ReviewStore {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** Title truncation budget for the session-name fallback (comment first line). */
+const SESSION_TITLE_MAX = 40
+
+/**
+ * Compose the review's lifecycle session title: `[类型]标题` (design/09 §4).
+ * Falls back title → comment first non-empty line → reviewId.
+ */
+function reviewSessionTitle(record: ReviewRecord): string {
+  const label = REVIEW_TYPE_LABELS[record.type] ?? record.type
+  let body: string
+  if (record.title !== null && record.title.trim() !== '') {
+    body = record.title.trim()
+  } else {
+    const firstLine = record.comment
+      .split('\n')
+      .map(line => line.trim())
+      .find(line => line !== '')
+    body = firstLine ?? record.reviewId
+  }
+  if (body.length > SESSION_TITLE_MAX) body = `${body.slice(0, SESSION_TITLE_MAX)}…`
+  return `[${label}]${body}`
+}
 
 function toSummary(record: ReviewRecord): ReviewSummary {
   return {
