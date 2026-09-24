@@ -307,7 +307,7 @@ export class DevBuddyStore {
         '',
       ].join('\n'),
       intend_init: [
-        '# 设计目标',
+        '# 项目规划',
         '',
         '（在此阐述项目整体的意图、要解决的问题与初步设计思路。）',
         '',

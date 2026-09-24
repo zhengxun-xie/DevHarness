@@ -15,7 +15,7 @@
 ```text
 <project-root>/
 ├── ProjectInfo.md
-├── Intent.md
+├── CoreRequirements.md
 └── .devbuddy/
     └── reviews/
         ├── REV-0001-limb-control-authority.md
@@ -36,7 +36,7 @@
 schemaVersion: 2
 review_id: REV-0001            # 项目内唯一、单调递增、不复用
 number: 1                      # 文档内唯一、单调递增、不复用（同一 document 维度）
-document: Intent.md            # 相对项目根的文档路径
+document: CoreRequirements.md            # 相对项目根的文档路径
 document_sha: "9f2c…"          # 创建时目标文档 sha256（锚点基线版本）
 
 type: suggestion               # question | suggestion | bug | design_issue
@@ -374,8 +374,8 @@ export interface ReviewSummary {
   "projectId": "…",
   "updatedAt": "2026-09-15T10:00:00+08:00",
   "reviews": [
-    { "reviewId": "REV-0001", "number": 1, "document": "Intent.md", "status": "open", "severity": "major" },
-    { "reviewId": "REV-0002", "number": 2, "document": "Intent.md", "status": "open", "severity": "minor" },
+    { "reviewId": "REV-0001", "number": 1, "document": "CoreRequirements.md", "status": "open", "severity": "major" },
+    { "reviewId": "REV-0002", "number": 2, "document": "CoreRequirements.md", "status": "open", "severity": "minor" },
     { "reviewId": "REV-0003", "number": 1, "document": "ProjectInfo.md", "status": "resolved", "severity": "info" }
   ]
 }

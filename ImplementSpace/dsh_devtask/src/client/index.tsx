@@ -33,6 +33,13 @@ export type { DevTaskKey }
 
 const NS = 'devTaskLeft'
 
+declare module '@deepseek-ai/dsh-client-ui-sidebar-right/client' {
+  /** DevDelivery accepts project context when an OKR project node is selected. */
+  interface SidebarRightTabParamsMap {
+    devdelivery: { project?: { id: string; name: string; path?: string; workspaceId?: string } }
+  }
+}
+
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     /** DevTask left-panel copy. */
@@ -54,6 +61,9 @@ export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS)
 
   const controller = createPanelController()
+  // DevDelivery opens the task workspace through this optional browser event.
+  const onDeliveryReturn = () => controller.openPanel()
+  window.addEventListener('dsh:devtask:open', onDeliveryReturn)
 
   // The cores self-heal while the shell is still mounting (page-wide
   // MutationObserver hub), so the mounts can be installed immediately.
@@ -71,6 +81,7 @@ export function apply(ctx: ClientContext): void {
   })
 
   ctx.effect(() => () => {
+    window.removeEventListener('dsh:devtask:open', onDeliveryReturn)
     disposePanel()
     disposeSidebarEntry()
   }, 'dsh-devtask: dom mounts')

@@ -4,7 +4,7 @@
 
 ## 1. 背景
 
-现有 AI Coding 以 **Chat / Prompt / Code** 为核心，存在需求漂移、评审意见与代码缺乏关联、上下文丢失等问题（见 `Intent.md` 背景章节）。DevBuddy 的左栏主插件解决了工程文档的**组织与编辑**问题，Reviewer 插件则解决**评审如何驱动实施**的问题。
+现有 AI Coding 以 **Chat / Prompt / Code** 为核心，存在需求漂移、评审意见与代码缺乏关联、上下文丢失等问题（见 `CoreRequirements.md` 背景章节）。DevBuddy 的左栏主插件解决了工程文档的**组织与编辑**问题，Reviewer 插件则解决**评审如何驱动实施**的问题。
 
 DevBuddy 的核心定位：
 

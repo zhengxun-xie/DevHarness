@@ -30,6 +30,8 @@ export interface OkrProjectViewProps {
   employees: DevTaskState['employees']
   /** 点击任务/子任务时打开编辑对话框。 */
   onEditTask(task: TaskRecord): void
+  /** 可交付任务（KR 下第三级）跳到 DevDelivery。 */
+  onOpenDelivery(task: TaskRecord): void
 }
 
 /** 状态 → 面板状态点属性值（与看板 dtk-status-dot 共用色板）。 */
@@ -213,12 +215,13 @@ const SubtaskRow = memo(function SubtaskRow({
 
 /** 任务行（第三层）+ 其模块子任务列表。 */
 const TaskRow = memo(function TaskRow({
-  node, employees, t, onEditTask,
+  node, employees, t, onEditTask, onOpenDelivery,
 }: {
   node: TaskNode
   employees: DevTaskState['employees']
   t: TranslateNS<'devTaskLeft'>
   onEditTask(task: TaskRecord): void
+  onOpenDelivery(task: TaskRecord): void
 }) {
   const { task, children } = node
   const owner = task.employeeId === null ? null : ownerNames([task.employeeId], employees)[0]!
@@ -230,9 +233,9 @@ const TaskRow = memo(function TaskRow({
         <button
           type="button"
           className="dtk-okr-row-title"
-          title={task.description !== '' ? task.description : task.title}
+          title="打开任务交付与验证状态"
           // eslint-disable-next-line react/jsx-no-bind
-          onClick={() => onEditTask(task)}
+          onClick={() => onOpenDelivery(task)}
         >
           {task.title}
         </button>
@@ -263,12 +266,13 @@ const TaskRow = memo(function TaskRow({
 
 /** KR 节点（第二层）+ 其任务列表。 */
 const KrNodeRow = memo(function KrNodeRow({
-  node, employees, t, onEditTask,
+  node, employees, t, onEditTask, onOpenDelivery,
 }: {
   node: KrNode
   employees: DevTaskState['employees']
   t: TranslateNS<'devTaskLeft'>
   onEditTask(task: TaskRecord): void
+  onOpenDelivery(task: TaskRecord): void
 }) {
   const [open, setOpen] = useState(true)
   const allTasks = node.roots.flatMap(r => [r.task, ...r.children])
@@ -316,6 +320,7 @@ const KrNodeRow = memo(function KrNodeRow({
               employees={employees}
               t={t}
               onEditTask={onEditTask}
+              onOpenDelivery={onOpenDelivery}
             />
           ))}
         </ul>
@@ -326,7 +331,7 @@ const KrNodeRow = memo(function KrNodeRow({
 
 /** O 节点（第一层）+ 其 KR 列表。 */
 const ObjectiveNodeRow = memo(function ObjectiveNodeRow({
-  objective, krs, taskCount, doneCount, employees, t, onEditTask,
+  objective, krs, taskCount, doneCount, employees, t, onEditTask, onOpenDelivery,
 }: {
   objective: OkrObjectiveRecord
   krs: KrNode[]
@@ -335,6 +340,7 @@ const ObjectiveNodeRow = memo(function ObjectiveNodeRow({
   employees: DevTaskState['employees']
   t: TranslateNS<'devTaskLeft'>
   onEditTask(task: TaskRecord): void
+  onOpenDelivery(task: TaskRecord): void
 }) {
   const [open, setOpen] = useState(true)
   // O 层进度 = 其可见任务完成比例（无任务时隐藏）
@@ -378,6 +384,7 @@ const ObjectiveNodeRow = memo(function ObjectiveNodeRow({
               employees={employees}
               t={t}
               onEditTask={onEditTask}
+              onOpenDelivery={onOpenDelivery}
             />
           ))}
         </div>
@@ -387,11 +394,12 @@ const ObjectiveNodeRow = memo(function ObjectiveNodeRow({
 })
 
 /** 单列散任务列表（孤儿区与未关联目标 KR 区共用）。 */
-function TaskList({ tasks, employees, t, onEditTask }: {
+function TaskList({ tasks, employees, t, onEditTask, onOpenDelivery }: {
   tasks: TaskNode[]
   employees: DevTaskState['employees']
   t: TranslateNS<'devTaskLeft'>
   onEditTask(task: TaskRecord): void
+  onOpenDelivery(task: TaskRecord): void
 }) {
   return (
     <ul className="dtk-okr-children">
@@ -403,6 +411,7 @@ function TaskList({ tasks, employees, t, onEditTask }: {
           employees={employees}
           t={t}
           onEditTask={onEditTask}
+          onOpenDelivery={onOpenDelivery}
         />
       ))}
     </ul>
@@ -410,7 +419,7 @@ function TaskList({ tasks, employees, t, onEditTask }: {
 }
 
 /** OKR 项目视图：O → KR → 任务 → 子任务 四层树。 */
-export function OkrProjectView({ tasks, objectives, keyResults, t, employees, onEditTask }: OkrProjectViewProps) {
+export function OkrProjectView({ tasks, objectives, keyResults, t, employees, onEditTask, onOpenDelivery }: OkrProjectViewProps) {
   const [orphansOpen, setOrphansOpen] = useState(true)
   const [orphanKrOpen, setOrphanKrOpen] = useState(true)
   const tree = useMemo(() => buildTree(tasks, objectives, keyResults), [tasks, objectives, keyResults])
@@ -434,6 +443,7 @@ export function OkrProjectView({ tasks, objectives, keyResults, t, employees, on
           employees={employees}
           t={t}
           onEditTask={onEditTask}
+          onOpenDelivery={onOpenDelivery}
         />
       ))}
       {tree.orphanKrs.length > 0 && (
@@ -464,6 +474,7 @@ export function OkrProjectView({ tasks, objectives, keyResults, t, employees, on
                   employees={employees}
                   t={t}
                   onEditTask={onEditTask}
+                  onOpenDelivery={onOpenDelivery}
                 />
               ))}
             </div>
@@ -495,6 +506,7 @@ export function OkrProjectView({ tasks, objectives, keyResults, t, employees, on
               employees={employees}
               t={t}
               onEditTask={onEditTask}
+              onOpenDelivery={onOpenDelivery}
             />
           )}
         </section>

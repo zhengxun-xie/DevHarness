@@ -14,6 +14,7 @@ import type {
   DocTreeMessage,
   DocTreeRequestMessage,
   DocTreeNode,
+  ProjectSwitchMessage,
   ReviewChangedMessage,
   ReviewAnchorDraft,
   SelectionMessage,
@@ -111,6 +112,19 @@ function parseDocTreeEvent(event: MessageEvent): DocTreeMessage | null {
   return { source: 'devbuddy-left', type: 'DEVBUDDY_DOC_TREE', projectId: data.projectId, nodes }
 }
 
+/** Validate an inbound ProjectSwitchMessage; returns null when malformed or foreign. */
+function parseProjectSwitchEvent(event: MessageEvent): ProjectSwitchMessage | null {
+  if (event.origin !== window.location.origin) return null
+  const data = event.data
+  if (!isRecord(data)
+    || data.source !== 'devbuddy-left'
+    || data.type !== 'DEVBUDDY_PROJECT_SWITCH') {
+    return null
+  }
+  if (typeof data.projectId !== 'string' || data.projectId.length === 0) return null
+  return { source: 'devbuddy-left', type: 'DEVBUDDY_PROJECT_SWITCH', projectId: data.projectId }
+}
+
 /** Validate an inbound CaretMessage; returns null when malformed or foreign. */
 function parseCaretEvent(event: MessageEvent): CaretMessage | null {
   if (event.origin !== window.location.origin) return null
@@ -145,6 +159,11 @@ export function onDevBuddyMessage(handler: (message: DevBuddyMessage) => void): 
     const docTree = parseDocTreeEvent(event)
     if (docTree !== null) {
       handler(docTree)
+      return
+    }
+    const projectSwitch = parseProjectSwitchEvent(event)
+    if (projectSwitch !== null) {
+      handler(projectSwitch)
       return
     }
     if (event.origin !== window.location.origin) return

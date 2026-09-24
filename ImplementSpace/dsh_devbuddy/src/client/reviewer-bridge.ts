@@ -20,6 +20,7 @@ const REVIEWER_API_PREFIX = '/api/devreviewer'
 const CHANGED_TYPE = 'DEVBUDDY_REVIEW_CHANGED'
 const DOC_TREE_TYPE = 'DEVBUDDY_DOC_TREE'
 const DOC_TREE_REQUEST_TYPE = 'DEVBUDDY_DOC_TREE_REQUEST'
+const PROJECT_SWITCH_TYPE = 'DEVBUDDY_PROJECT_SWITCH'
 const CARET_TYPE = 'DEVBUDDY_CARET'
 const CARET_REQUEST_TYPE = 'DEVBUDDY_CARET_REQUEST'
 const SOURCE_REVIEWER = 'devreviewer'
@@ -253,6 +254,21 @@ export function postDocTree(projectId: string, nodes: readonly DocTreeNode[]): v
     type: DOC_TREE_TYPE,
     projectId,
     nodes: nodes.map(node => ({ ...node })),
+  }, window.location.origin)
+}
+
+/**
+ * Notify the Reviewer that the left panel switched projects (browser-style
+ * tab strip). The Reviewer follows it so both panels share one active
+ * project. Best-effort: no acknowledgement, no retry — the Reviewer's own
+ * on-mount fetch covers the case where it opens later.
+ */
+export function postProjectSwitch(projectId: string): void {
+  if (projectId.length === 0) return
+  window.postMessage({
+    source: SOURCE_LEFT,
+    type: PROJECT_SWITCH_TYPE,
+    projectId,
   }, window.location.origin)
 }
 

@@ -593,6 +593,11 @@ export function DevTaskPanel({ t, sidebarRight }: DevTaskPanelProps) {
               t={t}
               employees={state!.employees}
               onEditTask={setEditingTask}
+              // eslint-disable-next-line react/jsx-no-bind
+              onOpenDelivery={task => sidebarRight.openTab('devdelivery', {
+                // Delivery is a concrete KR task, never its O/KR planning node.
+                params: { project: { id: task.id, name: task.title } },
+              })}
             />
           )}
 

@@ -139,8 +139,8 @@ AI 结果**不再直接改写文档**：先在弹窗中预览，允许「编辑 
 
 ## 验证记录（2026-09-21）
 
-- 会话创建并命名为 `[AI优化]CoreRequirements`（会话日志 `session/title` 事件确认）。
-- 绑定持久化：`.devbuddy/ai-sessions.json` → `{"CoreRequirements.md": "session-2d69af9e-…"}`。
+- 会话创建并命名为 `[AI优化]Intent`（会话日志 `session/title` 事件确认）。
+- 绑定持久化：`.devbuddy/ai-sessions.json` → `{"Intent.md": "session-2d69af9e-…"}`。
 - 连续两次派发（含追问「再简洁一些，控制在 25 个字以内」）**复用同一会话**，
   回复为 21 字，证明上下文连续。
 - 返回耗时 2.3s / 32s（修复前为固定 180s 超时挂死）。

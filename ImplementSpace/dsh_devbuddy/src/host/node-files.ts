@@ -50,7 +50,7 @@ export const NODE_REGISTRY: readonly NodeDescriptor[] = [
   },
   {
     id: 'intend_init',
-    title: '设计目标',
+    title: '项目规划',
     file: 'Intent.md',
     legacyFiles: ['CoreRequirements.md', 'ProjectGoal.md', 'IntendInit.md', 'intend_init.md'],
     description: '项目整体意图、初步设计思路等（Intent.md）',

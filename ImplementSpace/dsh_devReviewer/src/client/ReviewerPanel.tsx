@@ -164,12 +164,21 @@ export function ReviewerPanel({ t, useTabInfo }: ReviewerPanelProps): ReactNode 
     return () => window.clearTimeout(timer)
   }, [activeProjectId])
 
-  // Cross-barrier: only review-change notices are consumed. Inline selections
-  // arrive via openTab params (draftAnchor); legacy DEVBUDDY_SELECTION messages
-  // from an un-refreshed left panel are deliberately ignored (design/05 §2.1).
+  // Cross-barrier: review-change notices refresh the list; a left-panel
+  // project switch moves the Reviewer onto the same project; caret answers
+  // open the composer. Inline selections arrive via openTab params; legacy
+  // DEVBUDDY_SELECTION messages from an un-refreshed left panel are
+  // deliberately ignored (design/05 §2.1).
   useEffect(() => {
     return onDevBuddyMessage(message => {
       if (message.type === 'DEVBUDDY_SELECTION') return
+      // The left panel switched projects (browser-style tab strip): follow it
+      // so both panels share one active project. Must run BEFORE the foreign
+      // -project filter below — its projectId intentionally differs.
+      if (message.type === 'DEVBUDDY_PROJECT_SWITCH') {
+        if (message.projectId !== activeProjectId) void switchProject(message.projectId)
+        return
+      }
       if (activeProjectId && message.projectId !== activeProjectId) return
       if (message.type === 'DEVBUDDY_DOC_TREE') {
         setDocTree(message.nodes)

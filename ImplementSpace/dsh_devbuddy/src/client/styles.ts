@@ -318,6 +318,22 @@ html[data-devbuddy-active] [data-side='rightbar'][data-dragging]::after {
   flex: 0 0 auto;
 }
 .dbl-title { margin: 0; font-size: 18px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Contextual action: it is intentionally in the active project's own title
+   row (not in the project-switch tab strip), because delivery belongs to this
+   project rather than the global project navigator. */
+.dbl-project-delivery {
+  flex: 0 0 auto;
+  appearance: none;
+  border: 1px solid var(--border-color, rgba(0,0,0,.14));
+  border-radius: 7px;
+  padding: 5px 9px;
+  background: var(--bg-elevated, transparent);
+  color: var(--brand-color, #5e5ce6);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.dbl-project-delivery:hover { background: var(--dsw-alias-bg-layer-1, rgba(0,0,0,.04)); }
 .dbl-path { font-size: 12px; opacity: 0.6; word-break: break-all; font-family: var(--font-mono, monospace); }
 
 /* --- project ↔ DSH workspace status bar -------------------------------- */

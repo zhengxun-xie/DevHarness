@@ -860,6 +860,20 @@ export interface DocTreeRequestMessage {
 }
 
 /**
+ * Left sidebar -> Reviewer: user-driven project switch notice. The left
+ * panel broadcasts it after switching its active project (browser-style tab
+ * strip) so the Reviewer follows onto the same project; both panels keep
+ * one active project. Distinct from DocTreeMessage: a DocTree broadcast
+ * also happens on mount / card toggles and must NOT move the Reviewer's
+ * selection (only this notice does).
+ */
+export interface ProjectSwitchMessage {
+  source: 'devbuddy-left'
+  type: 'DEVBUDDY_PROJECT_SWITCH'
+  projectId: string
+}
+
+/**
  * Reviewer -> left sidebar: on-demand request for the focused editor caret.
  * Sent when the user clicks "add comment" without a selection; the left
  * replies with CaretMessage carrying a zero-length anchor draft for the
@@ -884,4 +898,5 @@ export type DevBuddyMessage =
   | SelectionMessage
   | ReviewChangedMessage
   | DocTreeMessage
+  | ProjectSwitchMessage
   | CaretMessage

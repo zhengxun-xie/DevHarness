@@ -18,7 +18,7 @@ flowchart LR
     subgraph Disk
         REG[(~/.dsh/devbuddy/registry.json<br/>与左栏共享)]
         REV[(.devbuddy/reviews/*.md)]
-        DOCS[(项目节点文档<br/>ProjectInfo.md / Intent.md / ...)]
+        DOCS[(项目节点文档<br/>ProjectInfo.md / CoreRequirements.md / ...)]
         GIT[(.git)]
     end
 

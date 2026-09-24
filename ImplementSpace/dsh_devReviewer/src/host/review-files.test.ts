@@ -22,7 +22,7 @@ const LEGACY_FILE = `---
 schemaVersion: 1
 review_id: REV-0001
 number: 1
-document: Intent.md
+document: CoreRequirements.md
 type: suggestion
 severity: minor
 title: legacy

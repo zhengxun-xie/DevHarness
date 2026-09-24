@@ -41,6 +41,13 @@ export type { DevBuddyKey }
 
 const NS = 'devBuddyLeft'
 
+declare module '@deepseek-ai/dsh-client-ui-sidebar-right/client' {
+  /** DevDelivery accepts current DevBuddy project context. */
+  interface SidebarRightTabParamsMap {
+    devdelivery: { project?: { id: string; name: string; path?: string; workspaceId?: string } }
+  }
+}
+
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     /** DevBuddy left-panel copy. */
@@ -64,6 +71,11 @@ export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS)
 
   const controller = createPanelController()
+  // DevDelivery returns here through this deliberately loose browser contract.
+  // Opening the panel is owned by the mount controller; DevBuddyPanel itself
+  // consumes the same event to select a matching project.
+  const onDeliveryReturn = () => controller.openPanel()
+  window.addEventListener('dsh:devbuddy:open', onDeliveryReturn)
   // Tolerate an older shell without the ui-workspace service published: the
   // panel still mounts; project switch just does not re-point the DSH
   // workspace/session underneath, and "new session" is disabled.
@@ -87,6 +99,7 @@ export function apply(ctx: ClientContext): void {
   })
 
   ctx.effect(() => () => {
+    window.removeEventListener('dsh:devbuddy:open', onDeliveryReturn)
     disposePanel()
     disposeSidebarEntry()
   }, 'dsh-devbuddy-left: dom mounts')

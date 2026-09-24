@@ -1,0 +1,5 @@
+# DevDelivery bundle patch: a host API plus a RIGHT-sidebar tab. It keeps a
+# project-local delivery registry and never needs CI credentials in Phase 1.
+- insert:
+    - id: devdelivery
+      name: 'dsh-devdelivery'

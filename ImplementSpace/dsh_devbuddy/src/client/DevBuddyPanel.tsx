@@ -21,7 +21,7 @@ import { api } from './api.ts'
 import { NewProjectForm } from './NewProjectForm.tsx'
 import { NodeCard } from './NodeCard.tsx'
 import type { NodeMode } from './NodeCard.tsx'
-import { postDocTree, onDocTreeRequest, onCaretRequest } from './reviewer-bridge.ts'
+import { postDocTree, postProjectSwitch, onDocTreeRequest, onCaretRequest } from './reviewer-bridge.ts'
 import type { CaretProvider, DocTreeNode } from './reviewer-bridge.ts'
 import { RightbarToggle } from './RightbarToggle.tsx'
 import { WorkspaceBar, type UiWorkspaceNav } from './WorkspaceBar.tsx'
@@ -78,6 +78,19 @@ export function DevBuddyPanel({ t, sidebarRight, uiWorkspace, panelController }:
   const [modes, setModes] = useState<Record<string, Record<string, NodeMode>>>({})
 
   const active = state?.projects.find(p => p.id === state.activeProjectId) ?? state?.projects[0] ?? null
+
+  // DevDelivery's "返回开发" action is intentionally a browser-level, optional
+  // contract: DevBuddy stays independently deployable and simply ignores a
+  // request whose project is not in its registry.
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      const projectId = (event as CustomEvent<{ project?: { id?: string } }>).detail?.project?.id
+      if (projectId === undefined || !state?.projects.some(project => project.id === projectId)) return
+      void api.openProject(projectId).then(setState).catch(caught => setError(caught instanceof Error ? caught.message : String(caught)))
+    }
+    window.addEventListener('dsh:devbuddy:open', onOpen)
+    return () => window.removeEventListener('dsh:devbuddy:open', onOpen)
+  }, [state?.projects])
 
   const docTreeNodes = useMemo<DocTreeNode[]>(() => {
     if (active === null) return []
@@ -206,6 +219,9 @@ export function DevBuddyPanel({ t, sidebarRight, uiWorkspace, panelController }:
       }
       const next = await api.openProject(project.id)
       setState(next)
+      // Mirror the switch onto the Reviewer so both panels stay on the same
+      // project. Best-effort: a Reviewer opening later will fetch on mount.
+      postProjectSwitch(project.id)
       // Restore after the incoming layer paints: two frames let its content
       // height settle before assigning the saved offset.
       requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -430,6 +446,7 @@ export function DevBuddyPanel({ t, sidebarRight, uiWorkspace, panelController }:
               </span>
             </button>
           ))}
+
         </div>
       )}
 
@@ -466,6 +483,17 @@ export function DevBuddyPanel({ t, sidebarRight, uiWorkspace, panelController }:
             <>
               <div className="dbl-head">
                 <h2 className="dbl-title">{active.name}</h2>
+                <button
+                  type="button"
+                  className="dbl-project-delivery"
+                  title="打开当前项目的交付与验证状态"
+                  // eslint-disable-next-line react/jsx-no-bind
+                  onClick={() => sidebarRight.openTab('devdelivery', {
+                    params: { project: { id: active.id, name: active.name, path: active.path, workspaceId: active.workspace?.workspaceId } },
+                  })}
+                >
+                  交付与验证
+                </button>
               </div>
               <div className="dbl-path" title={active.path}>{active.path}</div>
               <WorkspaceBar
