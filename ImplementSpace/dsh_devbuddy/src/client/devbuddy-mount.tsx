@@ -14,7 +14,7 @@ import type { ISidebarRight } from '@deepseek-ai/dsh-client-ui-sidebar-right/cli
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { mountCenterPanel } from './family/panel-mount-core.ts'
 import { DevBuddyPanel } from './DevBuddyPanel.tsx'
-import type { SessionsNav } from './WorkspaceBar.tsx'
+import type { UiWorkspaceNav } from './WorkspaceBar.tsx'
 import type { PanelController } from './panelController.ts'
 
 /** The injected DevBuddy container (kept in the DOM, hidden when inactive). */
@@ -34,16 +34,16 @@ export function mountDevbuddyPanel(options: {
   controller: PanelController
   t: TranslateNS<'devBuddyLeft'>
   sidebarRight: ISidebarRight
-  sessions: SessionsNav | null
+  uiWorkspace: UiWorkspaceNav | null
   locale?: LocaleRefreshSource
 }): () => void {
-  const { controller, t, sidebarRight, sessions, locale } = options
+  const { controller, t, sidebarRight, uiWorkspace, locale } = options
   return mountCenterPanel({
     render: root => root.render(
       <DevBuddyPanel
         t={t}
         sidebarRight={sidebarRight}
-        sessions={sessions}
+        uiWorkspace={uiWorkspace}
         panelController={controller}
       />,
     ),
@@ -59,9 +59,10 @@ export function mountDevbuddyPanel(options: {
       'data-dsh-atb-active',
       'data-dsh-taskboard-active',
       'data-dsh-ssh-active',
+      'data-devtask-active',
     ],
     panelName: 'devbuddy',
-    siblingPanelNames: ['dsh-taskboard', 'taskboard', 'ssh'],
+    siblingPanelNames: ['dsh-taskboard', 'taskboard', 'ssh', 'devtask'],
     isOpen: () => controller.isOpen(),
     close: () => controller.closePanel(),
     subscribe: listener => controller.subscribe(listener),

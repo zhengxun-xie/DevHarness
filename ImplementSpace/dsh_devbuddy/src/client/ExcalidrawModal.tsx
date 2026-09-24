@@ -93,8 +93,6 @@ export function ExcalidrawModal({
   const [initialData, setInitialData] = useState<SceneInitialData | null>(null)
   const [fatal, setFatal] = useState<string | null>(null)
   const [notice, setNotice] = useState<string>('')
-  /** TEMP DIAGNOSTIC: live scene/viewport readout shown in the modal head. */
-  const [probe, setProbe] = useState<string>('')
 
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -103,32 +101,6 @@ export function ExcalidrawModal({
   const closedRef = useRef(false)
   const onSavedRef = useRef(onSaved)
   onSavedRef.current = onSaved
-
-  /**
-   * TEMP DIAGNOSTIC: sample the live scene + viewport through the imperative
-   * API once the editor mounts, so a blank canvas can be told apart from an
-   * unloaded scene or an unmeasured container.
-   */
-  const scheduleProbe = (): void => {
-    const inst = apiRef.current
-    if (inst === null) return
-    const read = (): void => {
-      try {
-        const els = inst.getSceneElements()
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const st = inst.getAppState() as any
-        const zoom = typeof st?.zoom === 'number' ? st.zoom : st?.zoom?.value
-        setProbe(
-          `scene=${els.length} vp=${st?.width}x${st?.height} zoom=${zoom} ` +
-          `scroll=(${Math.round(st?.scrollX ?? 0)},${Math.round(st?.scrollY ?? 0)})`,
-        )
-      } catch (error) {
-        setProbe(`probe: ${String(error)}`)
-      }
-    }
-    setTimeout(read, 600)
-    setTimeout(read, 2500)
-  }
 
   // --- Lazy-load the Excalidraw bundle + inject its CSS ---
   useEffect(() => {
@@ -261,7 +233,6 @@ export function ExcalidrawModal({
         <div className="dbl-draw-modal-head">
           <span className="dbl-draw-modal-title">✎ {labels.title}: {src}</span>
           <span className="dbl-draw-modal-notice">{notice}</span>
-          <span className="dbl-draw-modal-notice" data-probe="1">{probe}</span>
           <button
             type="button"
             className="dbl-linkbtn"
@@ -284,13 +255,18 @@ export function ExcalidrawModal({
                         initialData={initialData}
                         excalidrawAPI={(instance: ExcalidrawImperativeAPI) => {
                           apiRef.current = instance
-                          scheduleProbe()
                           // initialData.scrollToContent runs before the
                           // ResizeObserver measures the container, so the
                           // scroll it computes is off-centre. Re-centre
-                          // imperatively once dimensions are in.
+                          // imperatively once dimensions are in, zooming to
+                          // fit the whole drawing with a small margin.
                           setTimeout(() => {
-                            try { instance.scrollToContent() } catch { /* non-fatal */ }
+                            try {
+                              instance.scrollToContent(undefined, {
+                                fitToViewport: true,
+                                viewportZoomFactor: 0.9,
+                              })
+                            } catch { /* non-fatal */ }
                           }, 400)
                         }}
                         // eslint-disable-next-line @typescript-eslint/no-explicit-any

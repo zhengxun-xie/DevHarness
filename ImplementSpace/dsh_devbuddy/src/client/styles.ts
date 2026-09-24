@@ -197,6 +197,15 @@ html[data-devbuddy-active] [data-side='rightbar'][data-dragging]::after {
   gap: 14px;
 }
 
+/* Per-project card layers: inactive projects are hidden, never unmounted, so
+   open documents and unsaved edits survive a project switch. */
+.dbl-project-layer[hidden] {
+  display: none !important;
+}
+.dbl-tabbar[data-switching="true"] {
+  opacity: 0.65;
+}
+
 /* --- browser-style project tab bar (topmost chrome row) -------------------- */
 .dbl-tabbar {
   flex: 0 0 auto;
@@ -265,8 +274,14 @@ html[data-devbuddy-active] [data-side='rightbar'][data-dragging]::after {
   background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.08));
 }
 
+/* Upper-area host for the create-project form: it sits between the header and
+   the project tab strip (the chrome that adds a tab, not scroll body content).
+   Gutters match the header's own 24px side padding; the bottom gap separates
+   it from the tab bar. */
+.dbl-form-area { flex: 0 0 auto; padding: 0 24px 12px; }
 .dbl-form {
   display: flex; flex-direction: column; gap: 10px;
+  box-sizing: border-box;
   border: 1px solid var(--border-color, rgba(0,0,0,0.12));
   border-radius: 10px; padding: 16px;
   background: var(--bg-elevated, transparent);
@@ -280,6 +295,12 @@ html[data-devbuddy-active] [data-side='rightbar'][data-dragging]::after {
   background: var(--input-bg, transparent);
   color: inherit; font: inherit; font-size: 13px;
 }
+.dbl-input-row { display: flex; gap: 8px; align-items: center; }
+.dbl-input-row .dbl-input { flex: 1 1 auto; min-width: 0; }
+.dbl-btn-browse { flex: 0 0 auto; }
+.dbl-options { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.dbl-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; user-select: none; }
+.dbl-check input { margin: 0; cursor: pointer; }
 .dbl-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .dbl-btn {
   padding: 6px 16px; border-radius: 8px; cursor: pointer; font-size: 13px;
@@ -728,6 +749,42 @@ html[data-devbuddy-active] [data-side='rightbar'][data-dragging]::after {
   overflow: hidden;
 }
 .dbl-editor-mirror-line { display: block; }
+
+/* --- Section folding (shared visual language in both surfaces) ----------- */
+/* Fold chevron in the source editor's gutter. */
+.dbl-fold-chevron {
+  flex: 0 0 auto; appearance: none; background: none; border: 0;
+  padding: 0; width: 14px; height: 16px;
+  font-size: 10px; line-height: 16px; text-align: center;
+  color: var(--dsw-alias-label-tertiary, rgba(0,0,0,0.45));
+  cursor: pointer; border-radius: 3px;
+}
+.dbl-fold-chevron:hover {
+  background: var(--dsw-alias-bg-layer-3, rgba(0,0,0,0.06));
+  color: var(--dsw-alias-label-secondary, rgba(0,0,0,0.75));
+}
+/* Folded rows show how many lines they hide, next to the chevron. */
+.dbl-fold-count {
+  flex: 0 0 auto; margin-left: 1px;
+  font-size: 9.5px; line-height: 16px;
+  color: var(--dsw-alias-label-tertiary, rgba(0,0,0,0.45));
+  font-variant-numeric: tabular-nums;
+}
+/* Rich-text surface: inline chevron widget + hidden section blocks. */
+.dbl-fold-widget { display: inline-flex; vertical-align: baseline; }
+.dbl-fold-chevron-rt {
+  appearance: none; background: none; border: 0;
+  padding: 0; width: 16px; height: 1em; margin-right: 2px;
+  font-size: 0.75em; line-height: 1.4; vertical-align: middle;
+  color: var(--dsw-alias-label-tertiary, rgba(0,0,0,0.45));
+  cursor: pointer; border-radius: 3px;
+}
+.dbl-fold-chevron-rt:hover {
+  background: var(--dsw-alias-bg-layer-3, rgba(0,0,0,0.06));
+  color: var(--dsw-alias-label-secondary, rgba(0,0,0,0.75));
+}
+.dbl-folded-body { display: none !important; }
+
 /* Highlight overlay (design/05 §5.2): bottom layer painting background
    tints plus 2px "|" edge bars. Its rects are editor-box-relative
    (rangeRects already include the gutter offset + 12px text padding), so
@@ -922,9 +979,16 @@ html[data-devbuddy-active] [data-side='rightbar'][data-dragging]::after {
 .dbl-draw[data-state="ready"] .dbl-draw-glyph { display: none; }
 .dbl-draw[data-state="ready"] .dbl-draw-label { display: none; }
 .dbl-draw[data-state="ready"] .dbl-draw-name { margin-left: 0; text-align: center; }
+/* Full-column display: width fills the block, height follows the drawing's
+   aspect ratio (the intrinsic PNG ratio). The max-height guard keeps extreme
+   ratios from eating the page; object-fit keeps the content undistorted
+   whenever that guard clamps the box. */
 .dbl-draw-img {
-  display: block; margin: 0 auto;
-  max-height: 160px; max-width: 100%;
+  display: block;
+  width: 100%; height: auto;
+  max-height: 560px;
+  object-fit: contain;
+  margin-inline: auto;
   border-radius: 4px; pointer-events: none;
 }
 
@@ -935,7 +999,7 @@ html[data-devbuddy-active] [data-side='rightbar'][data-dragging]::after {
   display: flex; align-items: center; justify-content: center;
 }
 .dbl-draw-modal {
-  width: min(1100px, 92vw); height: min(760px, 88vh);
+  width: min(1560px, 96vw); height: min(940px, 94vh);
   background: var(--dsw-alias-bg-overlay, #fff);
   border-radius: 12px; overflow: hidden;
   display: flex; flex-direction: column;
@@ -952,6 +1016,115 @@ html[data-devbuddy-active] [data-side='rightbar'][data-dragging]::after {
 .dbl-draw-modal-body { position: relative; flex: 1; min-height: 0; }
 .dbl-draw-modal-body .excalidraw { position: absolute; inset: 0; }
 .dbl-draw-modal-fatal { padding: 24px; font-size: 13px; opacity: 0.7; }
+
+/* --- In-app directory browser modal ----------------------------------- */
+.dbl-dir-modal-backdrop {
+  position: fixed; inset: 0; z-index: 10000;
+  background: rgba(0,0,0,0.45);
+  display: flex; align-items: center; justify-content: center;
+}
+.dbl-dir-modal {
+  width: min(560px, 92vw); max-height: min(640px, 88vh);
+  background: var(--dsw-alias-bg-overlay, #fff);
+  border-radius: 12px; overflow: hidden;
+  display: flex; flex-direction: column;
+  box-shadow: 0 18px 60px rgba(0,0,0,0.35);
+}
+.dbl-dir-modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; flex: none;
+  border-bottom: 1px solid var(--dsw-alias-line, rgba(0,0,0,0.1));
+}
+.dbl-dir-modal-title { font-size: 13px; font-weight: 600; }
+.dbl-dir-breadcrumb {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px;
+  padding: 8px 14px; flex: none; font-size: 12px;
+  border-bottom: 1px solid var(--dsw-alias-line, rgba(0,0,0,0.06));
+}
+.dbl-dir-crumb-btn {
+  background: none; border: none; color: var(--brand-color, #3b6fd4);
+  cursor: pointer; font: inherit; padding: 2px 5px; border-radius: 4px;
+}
+.dbl-dir-crumb-btn:hover { background: rgba(59,111,212,0.1); }
+.dbl-dir-crumb-btn:disabled { opacity: 0.5; cursor: default; }
+.dbl-dir-sep { opacity: 0.4; }
+.dbl-dir-list { flex: 1 1 auto; overflow-y: auto; padding: 6px; min-height: 200px; }
+.dbl-dir-row {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 6px 10px; border: none; background: none; color: inherit;
+  font: inherit; font-size: 13px; border-radius: 6px; cursor: pointer; text-align: left;
+}
+.dbl-dir-row:hover { background: var(--hover-bg, rgba(0,0,0,0.05)); }
+.dbl-dir-row:disabled { opacity: 0.5; cursor: default; }
+.dbl-dir-glyph { flex: none; }
+.dbl-dir-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbl-dir-status { padding: 16px; font-size: 12.5px; opacity: 0.6; }
+.dbl-dir-current {
+  padding: 6px 14px; flex: none; font-size: 11px; opacity: 0.55;
+  font-family: var(--font-mono, monospace); word-break: break-all;
+  border-top: 1px solid var(--dsw-alias-line, rgba(0,0,0,0.06));
+}
+.dbl-dir-new { display: flex; gap: 8px; padding: 8px 14px; flex: none; align-items: center; }
+.dbl-dir-new .dbl-input { flex: 1 1 auto; }
+.dbl-dir-actions {
+  display: flex; gap: 8px; justify-content: flex-end; padding: 10px 14px; flex: none;
+  border-top: 1px solid var(--dsw-alias-line, rgba(0,0,0,0.06));
+}
+
+/* --- Header diff icon switch ------------------------------------------- */
+.dbl-diff-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0; flex: none;
+  border: none; border-radius: 6px; background: none;
+  color: inherit; cursor: pointer; opacity: 0.62;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+.dbl-diff-toggle:hover { background: var(--hover-bg, rgba(0,0,0,0.06)); opacity: 1; }
+.dbl-diff-toggle[data-active="true"] {
+  background: var(--brand-color-soft, rgba(59,111,212,0.14));
+  color: var(--brand-color, #3b6fd4); opacity: 1;
+}
+.dbl-diff-toggle:disabled { opacity: 0.35; cursor: default; background: none; }
+.dbl-diff-toggle svg { display: block; }
+
+/* --- Inline unified diff (single column, painted on the document) ------ */
+.dbl-diff-i {
+  margin: 4px 0 2px;
+  border: 1px solid var(--dsw-alias-line, rgba(0,0,0,0.12));
+  border-radius: 8px; overflow: hidden;
+  background: var(--dsw-alias-bg-base, #fff);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px; line-height: 1.6;
+}
+.dbl-diff-i-head {
+  display: flex; align-items: center; justify-content: flex-end;
+  padding: 4px 10px; flex: none;
+  border-bottom: 1px solid var(--dsw-alias-line, rgba(0,0,0,0.08));
+}
+.dbl-diff-i-summary { font-size: 11.5px; opacity: 0.7; font-variant-numeric: tabular-nums; }
+.dbl-diff-i-empty { padding: 20px; font-size: 12.5px; opacity: 0.6; text-align: center; }
+.dbl-diff-i-body { padding: 4px 0; }
+.dbl-diff-i-row { display: flex; align-items: flex-start; }
+.dbl-diff-i-gutter {
+  display: inline-flex; justify-content: flex-end; align-items: baseline;
+  width: 58px; flex: none; padding-right: 8px; user-select: none;
+  color: var(--dsw-alias-label-tertiary, rgba(0,0,0,0.38));
+}
+.dbl-diff-i-no { font-variant-numeric: tabular-nums; }
+.dbl-diff-i-sign { display: inline-block; width: 10px; margin-left: 4px; font-weight: 700; text-align: center; }
+.dbl-diff-i-text {
+  flex: 1 1 auto; padding-right: 12px;
+  white-space: pre-wrap; word-break: break-word;
+}
+/* Keep empty lines at full text row height. */
+.dbl-diff-i-text:empty::before { content: '\\00a0'; }
+/* Row tints + sign/text colors. Translucent reds/greens read light & dark. */
+.dbl-diff-i-row[data-kind="del"] { background: rgba(212,72,59,0.13); }
+.dbl-diff-i-row[data-kind="add"] { background: rgba(47,158,99,0.13); }
+.dbl-diff-i-row[data-kind="del"] .dbl-diff-i-sign,
+.dbl-diff-i-row[data-kind="del"] .dbl-diff-i-text { color: #d4483b; }
+.dbl-diff-i-row[data-kind="add"] .dbl-diff-i-sign,
+.dbl-diff-i-row[data-kind="add"] .dbl-diff-i-text { color: #2f9e63; }
 `
 
 let injected = false

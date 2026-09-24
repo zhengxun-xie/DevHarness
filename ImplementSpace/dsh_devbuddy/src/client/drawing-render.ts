@@ -13,8 +13,13 @@
 import type { BinaryFiles } from '@excalidraw/excalidraw/types'
 import { loadExcalidrawBundle, type ExcalidrawBundleAPI } from './excalidraw-loader.ts'
 
-/** Maximum rendered thumbnail width; the sidebar column is ~300px. */
-const THUMBNAIL_MAX_WIDTH = 280
+/**
+ * Maximum rendered thumbnail width. The block displays the PNG at full
+ * document-column width with the height following the drawing's aspect
+ * ratio, so the raster must be wide enough to stay crisp when stretched.
+ * Small drawings still export at their natural size (scale ≤ 1).
+ */
+const THUMBNAIL_MAX_WIDTH = 1200
 /** Minimum export dimension so an empty scene never yields a 0x0 image. */
 const MIN_DIMENSION = 80
 /** Pixels of scene padding kept around the drawing bounds. */

@@ -1,8 +1,28 @@
 {
   "version": 1,
   "projectId": "p_6a127e8f",
-  "updatedAt": "2026-09-21T06:51:43.061Z",
+  "updatedAt": "2026-09-23T11:43:04.601Z",
   "reviews": [
+    {
+      "reviewId": "REV-0006",
+      "number": 3,
+      "document": "Intent.md",
+      "type": "requirement_issue",
+      "severity": "critical",
+      "status": "needs_review",
+      "title": "DevTask UI设计 参考DebBuddy...",
+      "section": "DevBuddy 设计目标",
+      "lineStart": 298,
+      "lineEnd": 307,
+      "tags": [],
+      "relatedParties": [
+        "agent_a"
+      ],
+      "author": "reviewer",
+      "assignee": "session-98227f59-df77-47b4-9139-5ed8988072e2",
+      "createdAt": "2026-09-23T03:39:42.149Z",
+      "updatedAt": "2026-09-23T11:43:04.397Z"
+    },
     {
       "reviewId": "REV-0005",
       "number": 2,
@@ -42,7 +62,7 @@
     {
       "reviewId": "REV-0003",
       "number": 2,
-      "document": "CoreRequirements.md",
+      "document": "Intent.md",
       "type": "suggestion",
       "severity": "major",
       "status": "resolved",
@@ -60,7 +80,7 @@
     {
       "reviewId": "REV-0001",
       "number": 1,
-      "document": "CoreRequirements.md",
+      "document": "Intent.md",
       "type": "suggestion",
       "severity": "minor",
       "status": "resolved",

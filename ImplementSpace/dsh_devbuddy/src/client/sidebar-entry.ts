@@ -52,6 +52,7 @@ export function mountDevbuddySidebarEntry(options: {
     position: 'after',
     familySelectors: [
       ENTRY_SELECTOR,
+      '[data-devtask-entry]',
       '[data-dsh-atb-entry]',
       '[data-dsh-taskboard-entry]',
       '[data-dsh-ssh-entry]',

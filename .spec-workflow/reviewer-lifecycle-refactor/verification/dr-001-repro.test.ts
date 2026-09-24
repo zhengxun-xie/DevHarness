@@ -17,12 +17,12 @@ import { join } from 'node:path'
 
 process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dbr-verify-home-'))
 
-const { ReviewStore } = await import('../../../ImplementSpace/dsh_reviewerSidebar/src/host/review-store.ts')
-const { REVIEWS_DIRNAME } = await import('../../../ImplementSpace/dsh_reviewerSidebar/src/host/review-files.ts')
-const { hasAgentCompletionSuggestion, normalizeStatus } = await import('../../../ImplementSpace/dsh_reviewerSidebar/src/protocol.ts')
+const { ReviewStore } = await import('../../../ImplementSpace/dsh_devReviewer/src/host/review-store.ts')
+const { REVIEWS_DIRNAME } = await import('../../../ImplementSpace/dsh_devReviewer/src/host/review-files.ts')
+const { hasAgentCompletionSuggestion, normalizeStatus } = await import('../../../ImplementSpace/dsh_devReviewer/src/protocol.ts')
 type ReviewStoreInstance = InstanceType<typeof ReviewStore>
 
-import type { CreateReviewRequest, ReviewAnchorDraft } from '../../../ImplementSpace/dsh_reviewerSidebar/src/protocol.ts'
+import type { CreateReviewRequest, ReviewAnchorDraft } from '../../../ImplementSpace/dsh_devReviewer/src/protocol.ts'
 
 const PROJECT_ID = 'p-verify'
 

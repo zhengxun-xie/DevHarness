@@ -10,17 +10,31 @@ export type DevBuddyKey =
   | 'project.new'
   | 'project.name'
   | 'project.path'
+  | 'project.browse'
   | 'project.create'
   | 'project.cancel'
+  | 'project.initGit'
+  | 'project.createSession'
+  | 'project.sessionWelcome'
   | 'project.remove'
   | 'project.removeConfirm'
+  | 'picker.title'
+  | 'picker.select'
+  | 'picker.newFolder'
+  | 'picker.createFolder'
+  | 'picker.cancel'
+  | 'picker.empty'
+  | 'picker.loading'
   | 'node.richtext'
   | 'node.collapse'
   | 'node.source'
   | 'node.save'
   | 'node.saved'
   | 'node.discard'
+  | 'node.diff'
   | 'node.unsaved'
+  | 'diff.noChanges'
+  | 'diff.summary'
   | 'node.notFound'
   | 'node.updated'
   | 'node.empty'
@@ -28,6 +42,9 @@ export type DevBuddyKey =
   | 'node.reviewBadgeDrifted'
   | 'node.addReview'
   | 'node.closeReview'
+  | 'node.foldSection'
+  | 'node.unfoldSection'
+  | 'node.foldedLines'
   | 'toolbar.paragraph'
   | 'toolbar.bold'
   | 'toolbar.italic'
@@ -98,17 +115,31 @@ const en: Record<DevBuddyKey, string> = {
   'project.new': 'New project',
   'project.name': 'Project name',
   'project.path': 'Working directory (absolute path)',
+  'project.browse': 'Browse…',
   'project.create': 'Create',
   'project.cancel': 'Cancel',
+  'project.initGit': 'Initialize git repository',
+  'project.createSession': 'Create a new session',
+  'project.sessionWelcome': 'A new DevBuddy project has been created. The working directory and project documents have been initialized.',
   'project.remove': 'Remove',
   'project.removeConfirm': 'Remove this project from DevBuddy? Files on disk are kept.',
+  'picker.title': 'Choose a directory',
+  'picker.select': 'Select this folder',
+  'picker.newFolder': 'New folder name',
+  'picker.createFolder': 'Create',
+  'picker.cancel': 'Cancel',
+  'picker.empty': 'No subdirectories',
+  'picker.loading': 'Loading…',
   'node.richtext': 'Rich text',
   'node.collapse': 'Collapse',
   'node.source': 'Source',
   'node.save': 'Save',
   'node.saved': 'Saved',
   'node.discard': 'Discard',
+  'node.diff': 'Show diff against the saved content',
   'node.unsaved': 'Unsaved changes — the current draft is not saved yet',
+  'diff.noChanges': 'No differences — the draft matches the saved content.',
+  'diff.summary': '+{added}  -{removed}',
   'node.notFound': 'File not created yet',
   'node.updated': 'Updated',
   'node.empty': 'Empty file — click Rich text to start.',
@@ -116,6 +147,9 @@ const en: Record<DevBuddyKey, string> = {
   'node.reviewBadgeDrifted': 'anchor drifted',
   'node.addReview': '💬 Add comment',
   'node.closeReview': 'Close',
+  'node.foldSection': 'Fold section',
+  'node.unfoldSection': 'Unfold section',
+  'node.foldedLines': 'Folded',
   'toolbar.paragraph': 'Text',
   'toolbar.bold': 'Bold',
   'toolbar.italic': 'Italic',
@@ -187,17 +221,31 @@ const zh: Record<DevBuddyKey, string> = {
   'project.new': '新建项目',
   'project.name': '项目名称',
   'project.path': '工作目录（绝对路径）',
+  'project.browse': '浏览…',
   'project.create': '创建',
   'project.cancel': '取消',
+  'project.initGit': '初始化 Git 仓库',
+  'project.createSession': '创建新会话',
+  'project.sessionWelcome': '已创建一个新的 DevBuddy 项目，工作目录与项目文档均已初始化。',
   'project.remove': '移除',
   'project.removeConfirm': '从 DevBuddy 移除该项目？磁盘上的文件不会被删除。',
+  'picker.title': '选择目录',
+  'picker.select': '选择此文件夹',
+  'picker.newFolder': '新建文件夹名称',
+  'picker.createFolder': '新建',
+  'picker.cancel': '取消',
+  'picker.empty': '没有子目录',
+  'picker.loading': '加载中…',
   'node.richtext': '富文本',
   'node.collapse': '收起',
   'node.source': '源码',
   'node.save': '保存',
   'node.saved': '已保存',
   'node.discard': '放弃',
+  'node.diff': '差异',
   'node.unsaved': '有未保存的修改 —— 当前草稿尚未保存',
+  'diff.noChanges': '没有差异 —— 草稿与已保存内容一致。',
+  'diff.summary': '+{added}  -{removed}',
   'node.notFound': '文件尚未创建',
   'node.updated': '已更新',
   'node.empty': '文件为空 —— 点击「富文本」开始填写。',
@@ -205,6 +253,9 @@ const zh: Record<DevBuddyKey, string> = {
   'node.reviewBadgeDrifted': '锚点已漂移',
   'node.addReview': '💬 添加评论',
   'node.closeReview': '关闭',
+  'node.foldSection': '折叠段落',
+  'node.unfoldSection': '展开段落',
+  'node.foldedLines': '已折叠',
   'toolbar.paragraph': '正文',
   'toolbar.bold': '加粗',
   'toolbar.italic': '斜体',

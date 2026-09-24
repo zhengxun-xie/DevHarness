@@ -118,12 +118,26 @@ export function devbuddyRoutes(store: DevBuddyStore, excalidrawBundlePath: strin
       method: 'POST',
       path: `${DEVBUDDY_API_PREFIX}/projects`,
       handler: async (req, res) => {
-        const body = await readBody(req) as { name?: unknown; path?: unknown }
+        const body = await readBody(req) as {
+          name?: unknown
+          path?: unknown
+          initGit?: unknown
+          welcome?: unknown
+        }
         if (typeof body.name !== 'string' || typeof body.path !== 'string') {
           sendError(res, 400, 'name and path must be strings')
           return
         }
-        sendJson(res, 200, await store.createProject({ name: body.name, path: body.path }))
+        if (body.welcome !== undefined && typeof body.welcome !== 'string') {
+          sendError(res, 400, 'welcome must be a string')
+          return
+        }
+        sendJson(res, 200, await store.createProject({
+          name: body.name,
+          path: body.path,
+          initGit: body.initGit === true,
+          welcome: typeof body.welcome === 'string' ? body.welcome.slice(0, 2000) : undefined,
+        }))
       },
     },
     {

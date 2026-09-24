@@ -17,7 +17,9 @@ import {
   useEffect,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
+import { NodeViewWrapper } from '@tiptap/react'
 import type { NodeViewProps } from '@tiptap/react'
 import { api } from './api.ts'
 import { renderDrawingThumbnail } from './drawing-render.ts'
@@ -99,7 +101,11 @@ export function DrawingBlockView({ node, selected }: NodeviewPropsCompat): JSX.E
       : context?.emptyLabel
 
   return (
-    <div
+    // tiptap v3 requires a React node view's root to be NodeViewWrapper: the
+    // internal `dom` getter throws "Please use the NodeViewWrapper component"
+    // (surfacing as a blank panel when the editor unmounts / switches
+    // surfaces) for any other root element.
+    <NodeViewWrapper
       className="dbl-draw"
       data-state={blockState}
       data-selected={selected}
@@ -110,7 +116,7 @@ export function DrawingBlockView({ node, selected }: NodeviewPropsCompat): JSX.E
       // eslint-disable-next-line react/jsx-no-bind
       onClick={open}
       // eslint-disable-next-line react/jsx-no-bind
-      onKeyDown={event => {
+      onKeyDown={(event: ReactKeyboardEvent) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault()
           open()
@@ -127,7 +133,7 @@ export function DrawingBlockView({ node, selected }: NodeviewPropsCompat): JSX.E
             )}
           </span>}
       <span className="dbl-draw-name">{src}</span>
-    </div>
+    </NodeViewWrapper>
   )
 }
 

@@ -11,6 +11,8 @@ import type {
   AiDispatchRequest,
   AiDispatchResult,
   CreateDrawingResult,
+  CreateProjectRequest,
+  CreateProjectResult,
   DevBuddyState,
   DrawingView,
   NodeView,
@@ -40,7 +42,7 @@ export const api = {
   state(): Promise<DevBuddyState> {
     return request('/state')
   },
-  createProject(input: { name: string; path: string }): Promise<ProjectSummary> {
+  createProject(input: CreateProjectRequest): Promise<CreateProjectResult> {
     return post('/projects', input)
   },
   removeProject(id: string): Promise<DevBuddyState> {
@@ -61,6 +63,37 @@ export const api = {
   },
   writeNode(projectId: string, nodeId: string, body: WriteNodeRequest): Promise<WriteNodeResult> {
     return post('/node', { ...body, projectId, nodeId })
+  },
+  /**
+   * Fire-and-forget node write for page unload / tab close. The event
+   * handler cannot await a promise, so the request is queued OUT OF BAND:
+   * `navigator.sendBeacon` first (a JSON Blob keeps the content-type the
+   * host's JSON parser expects), then a `keepalive` fetch as a fallback when
+   * the beacon queue is full / unavailable. No result is observed — a sha
+   * conflict or network miss simply leaves the draft on the mounted card.
+   */
+  writeNodeBeacon(projectId: string, nodeId: string, body: WriteNodeRequest): void {
+    const payload = JSON.stringify({ ...body, projectId, nodeId })
+    const url = `${DEVBUDDY_API_PREFIX}/node`
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+        const blob = new Blob([payload], { type: 'application/json' })
+        if (navigator.sendBeacon(url, blob)) return
+      }
+    } catch {
+      // fall through to keepalive fetch
+    }
+    try {
+      void fetch(url, {
+        method: 'POST',
+        cache: 'no-store',
+        keepalive: true,
+        headers: { 'content-type': 'application/json' },
+        body: payload,
+      }).catch(() => {})
+    } catch {
+      // Page is already tearing down — nothing more can be done.
+    }
   },
   readDrawing(projectId: string, src: string): Promise<DrawingView> {
     const query = new URLSearchParams({ projectId, src })

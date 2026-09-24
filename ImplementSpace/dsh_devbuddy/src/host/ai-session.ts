@@ -69,7 +69,7 @@ const REPLY_TIMEOUT_MS = 180_000
 /** Per-document AI session binding file, relative to a project directory. */
 const AI_SESSIONS_FILE = '.devbuddy/ai-sessions.json'
 
-/** Session-title prefix, e.g. "[AI优化]CoreRequirements". */
+/** Session-title prefix, e.g. "[AI优化]Intent". */
 const AI_TITLE_PREFIX = '[AI优化]'
 
 interface AiSessionsFile {

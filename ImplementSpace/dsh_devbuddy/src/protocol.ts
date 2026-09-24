@@ -4,7 +4,7 @@
  * import this module; the browser bundle inlines it.
  *
  * The prefix is distinct from the right-sidebar implementation
- * (`/api/devbuddy/*`) so both plugins can coexist in one web profile; the
+ * (`/api/devreviewer/*`) so both plugins can coexist in one web profile; the
  * on-disk registry and node files they read/write are shared.
  *
  * Endpoints (M0):
@@ -82,6 +82,12 @@ export interface WorkspaceInfo {
   title: string
   path: string
   sessionCount: number
+  /**
+   * The workspace's most recent non-archived session id (newest session
+   * first), or null when none exists. On a project switch the panel binds to
+   * this session instead of creating one.
+   */
+  latestSessionId: string | null
 }
 
 /**
@@ -98,6 +104,11 @@ export interface WorkspaceLink {
    *  manually rebound project that points at a workspace elsewhere). */
   samePath: boolean
   sessionCount: number
+  /**
+   * Most recent non-archived session in this workspace, or null when the
+   * workspace has no live session — a project switch then creates one.
+   */
+  latestSessionId: string | null
 }
 
 /** Project summary for the header tab strip (no file contents). */
@@ -111,6 +122,28 @@ export interface ProjectSummary extends ProjectRecord {
 export interface DevBuddyState {
   projects: ProjectSummary[]
   activeProjectId: string | null
+}
+
+/** POST /projects body: register a project plus optional host-side init actions. */
+export interface CreateProjectRequest {
+  name: string
+  path: string
+  /** Initialize a git repository in the project directory. */
+  initGit?: boolean
+  /**
+   * When present (non-empty), a DSH session is created for the project and
+   * this localized welcome prompt is sent into it. A session with a turn is
+   * persisted, whereas a blank session is dropped on navigating away.
+   */
+  welcome?: string
+}
+
+/**
+ * POST /projects result: the created project summary plus the id of the
+ * session bootstrapped with the welcome prompt (null when none was created).
+ */
+export interface CreateProjectResult extends ProjectSummary {
+  initialSessionId: string | null
 }
 
 /** One node file's contents. */
@@ -193,7 +226,7 @@ export type AiActionId = typeof AI_ACTION_IDS[number]
  */
 export interface AiDispatchRequest {
   projectId: string
-  /** Node file name (e.g. "CoreRequirements.md") — the session's identity key. */
+  /** Node file name (e.g. "Intent.md") — the session's identity key. */
   document: string
   action: AiActionId
   /** Selected text being operated on ('' for 'continue' at the caret). */

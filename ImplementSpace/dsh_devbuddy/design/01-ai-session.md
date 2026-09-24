@@ -29,7 +29,7 @@ AI 结果**不再直接改写文档**：先在弹窗中预览，允许「编辑 
 
 | 项 | 值 |
 | --- | --- |
-| 会话标题 | `[AI优化]<文档名>`，文档名 = 节点文件 basename 去掉扩展名（如 `CoreRequirements.md` → `[AI优化]CoreRequirements`） |
+| 会话标题 | `[AI优化]<文档名>`，文档名 = 节点文件 basename 去掉扩展名（如 `Intent.md` → `[AI优化]Intent`） |
 | 绑定文件 | `<项目根>/.devbuddy/ai-sessions.json` |
 | 绑定结构 | `{ "version": 1, "sessions": { "<文档文件名>": "<sessionId>" } }` |
 

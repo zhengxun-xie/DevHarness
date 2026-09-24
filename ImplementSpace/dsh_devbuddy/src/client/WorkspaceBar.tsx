@@ -3,8 +3,8 @@
  *
  * Shows the resolved workspace link (explicit binding or same-path auto
  * match) with its session count, offers:
- *   - "new session here": sessions.create({workspaceId}) → sessions.open →
- *     close the DevBuddy takeover so the fresh conversation is revealed
+ *   - "new session here": uiWorkspace.openWorkspace → close the DevBuddy
+ *     takeover so the fresh conversation is revealed
  *   - rebind picker: any DSH workspace, plus an "auto-match by path" reset
  *
  * The workspace list is fetched lazily the first time the picker opens.
@@ -14,10 +14,49 @@ import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { api } from './api.ts'
 import type { WorkspaceInfo, WorkspaceLink } from '../protocol.ts'
 
-/** Minimal structural face of the client `sessions` service (session-controller). */
-export interface SessionsNav {
-  create(opts?: { workspaceId?: string }): Promise<string>
-  open(id: string): void
+/** One directory row in the in-app browse picker (child or breadcrumb). */
+export interface DirectoryEntryLike {
+  name: string
+  path: string
+  hidden: boolean
+}
+
+/** One directory level plus its ancestry (client-safe shape). */
+export interface DirectoryListingLike {
+  path: string
+  home: string
+  crumbs: DirectoryEntryLike[]
+  entries: DirectoryEntryLike[]
+  truncated: boolean
+}
+
+/**
+ * Minimal structural face of the client `uiWorkspace` service
+ * (`@deepseek-ai/dsh-client-ui-workspace`). Reached structurally so the
+ * plugin stays free of a package dependency on the core workspace UI package.
+ */
+export interface UiWorkspaceNav {
+  /**
+   * Connect a Workspace (reusing its blank session, or creating one) and
+   * switch the main view to that session — the DSH-native "open a workspace"
+   * action, which also re-points the session right sidebar at the workspace.
+   */
+  openWorkspace(workspaceId: string): Promise<void>
+  /**
+   * Switch the main view to a specific session (by id). Used when the target
+   * session is already non-blank (openWorkspace would instead open/create a
+   * blank session). Like openWorkspace it re-points the session right sidebar.
+   */
+  openSession(sessionId: string): void
+  /**
+   * Native OS directory chooser; resolves the chosen absolute path, or null
+   * on cancel. Throws when the host has no native chooser (SSH / headless).
+   */
+  pickDirectory(): Promise<string | null>
+  /** List one directory level for the in-app browser (absent = home). */
+  listDirectory(path?: string, signal?: AbortSignal): Promise<DirectoryListingLike>
+  /** Create a child directory under an existing parent directory. */
+  createDirectory(path: string, name: string): Promise<string>
 }
 
 export interface WorkspaceBarProps {
@@ -25,17 +64,18 @@ export interface WorkspaceBarProps {
   link: WorkspaceLink | null
   t: TranslateNS<'devBuddyLeft'>
   /**
-   * Client sessions service. Null only when the platform service is absent
-   * (older shell): the bar still renders, new-session is disabled.
+   * Client ui-workspace navigation service. Null only when the platform
+   * service is absent (older shell): the bar still renders, new-session is
+   * disabled.
    */
-  sessions: SessionsNav | null
+  uiWorkspace: UiWorkspaceNav | null
   /** Reveal the newly opened conversation by dismissing the panel takeover. */
   onClosePanel(): void
   /** Refetch /state after a binding change. */
   onRefresh(): Promise<void>
 }
 
-export function WorkspaceBar({ projectId, link, t, sessions, onClosePanel, onRefresh }: WorkspaceBarProps) {
+export function WorkspaceBar({ projectId, link, t, uiWorkspace, onClosePanel, onRefresh }: WorkspaceBarProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[] | null>(null)
   const [listError, setListError] = useState<string | null>(null)
@@ -71,12 +111,14 @@ export function WorkspaceBar({ projectId, link, t, sessions, onClosePanel, onRef
   }
 
   async function startSession(): Promise<void> {
-    if (link === null || sessions === null || starting) return
+    if (link === null || uiWorkspace === null || starting) return
     setStarting(true)
     setError(null)
     try {
-      const sessionId = await sessions.create({ workspaceId: link.workspaceId })
-      sessions.open(sessionId)
+      // DSH-native "open this workspace": reuses its blank session (or creates
+      // one), then switches the main view to it — no sessions.create/open wire
+      // (ISessions has no `open`), and it re-points the session right sidebar.
+      await uiWorkspace.openWorkspace(link.workspaceId)
       onClosePanel()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught))
@@ -107,7 +149,7 @@ export function WorkspaceBar({ projectId, link, t, sessions, onClosePanel, onRef
           <button
             type="button"
             className="dbl-linkbtn dbl-wsbar-new"
-            disabled={starting || sessions === null}
+            disabled={starting || uiWorkspace === null}
             // eslint-disable-next-line react/jsx-no-bind
             onClick={startSession}
           >

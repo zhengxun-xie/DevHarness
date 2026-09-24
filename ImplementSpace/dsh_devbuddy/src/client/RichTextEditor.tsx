@@ -91,6 +91,12 @@ import {
   type DocumentReviewAnchor,
 } from './reviewer-bridge.ts'
 import type { GutterBadgeItem, SelectionRectInfo } from './LineNumberTextarea.tsx'
+import {
+  foldedKeyAtPos,
+  makeSectionFolding,
+  SECTION_FOLD_META,
+  type FoldApi,
+} from './rich-text-folds.ts'
 
 /**
  * Repair structurally-empty list items.
@@ -198,7 +204,7 @@ export interface RichTextToolbarLabels {
 export interface RichTextEditorProps {
   /** Project id, needed for embedded drawing file operations. */
   projectId: string
-  /** Node file name (e.g. "CoreRequirements.md") — the AI session's identity. */
+  /** Node file name (e.g. "Intent.md") — the AI session's identity. */
   documentName: string
   /** Markdown draft — the single source of truth (mirrors LineNumberTextarea). */
   value: string
@@ -223,6 +229,12 @@ export interface RichTextEditorProps {
   closeLabel: string
   /** Toolbar tooltips / link prompt copy. */
   toolbarLabels: RichTextToolbarLabels
+  /** Keys of sections currently folded (see section-folds.ts). */
+  foldedKeys?: ReadonlySet<string>
+  /** Toggle one section's folded state. */
+  onToggleFold?: (key: string) => void
+  foldLabel?: string
+  unfoldLabel?: string
   /** LF offset to restore caret position after a mode switch (null = skip). */
   restoreCaret?: number | null
 }
@@ -749,6 +761,10 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       addReviewLabel,
       closeLabel,
       toolbarLabels,
+      foldedKeys,
+      onToggleFold,
+      foldLabel,
+      unfoldLabel,
       restoreCaret,
     } = props
 
@@ -782,6 +798,19 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     const lastEmittedRef = useRef<string>(value)
     const suppressEmitRef = useRef(false)
 
+    // Live fold state read by the PM fold plugin (updated in an effect below).
+    const foldApiRef = useRef<FoldApi>({
+      folds: new Set(),
+      toggle: () => {},
+      foldTitle: '',
+      unfoldTitle: '',
+    })
+
+    // Created ONCE: Tiptap compares `extensions` by reference, so a new
+    // instance per render would make it treat the options as changed on every
+    // render (and would drop the plugin's fold decorations state).
+    const sectionFolding = useMemo(() => makeSectionFolding(foldApiRef), [])
+
     const editor = useEditor({
       immediatelyRender: false,
       extensions: [
@@ -800,6 +829,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
           reviewRows: [],
           handlers: reviewHandlers,
         }),
+        sectionFolding,
       ],
       content: value,
       contentType: 'markdown',
@@ -835,6 +865,39 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
           }
           return false
         },
+        /**
+         * VS Code-style Tab: keep focus inside the editor. Lists defer to
+         * StarterKit's native Tab (sink) / Shift-Tab (lift); code blocks
+         * insert/remove literal indentation; prose consumes Tab with a no-op
+         * so the browser never moves focus to another control.
+         */
+        handleKeyDown(view, event) {
+          if (event.key !== 'Tab') return false
+          const { $from } = view.state.selection
+          const inside = (...names: string[]): boolean => {
+            for (let depth = $from.depth; depth >= 0; depth -= 1) {
+              if (names.includes($from.node(depth).type.name)) return true
+            }
+            return false
+          }
+          // Lists keep StarterKit's sink/lift behavior.
+          if (inside('listItem', 'taskItem')) return false
+          event.preventDefault()
+          if (!inside('codeBlock')) return true // prose: consume, no focus jump
+          const { from, to } = view.state.selection
+          if (from !== to) return true // multi-line code selection: no-op
+          if (event.shiftKey) {
+            let strip = 0
+            while (strip < 2 && from - strip - 1 >= 0 &&
+              view.state.doc.textBetween(from - strip - 1, from - strip) === ' ') {
+              strip += 1
+            }
+            if (strip > 0) view.dispatch(view.state.tr.delete(from - strip, from))
+            return true
+          }
+          view.dispatch(view.state.tr.insertText('  '))
+          return true
+        },
       },
     })
 
@@ -851,6 +914,35 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       // text. (This also bumps decorations.)
       refreshReviewMarksModel(editor)
     }, [editor, value])
+
+    // --- Fold props → fold API ref; ask the plugin to rebuild decorations ---
+    useEffect(() => {
+      foldApiRef.current = {
+        folds: foldedKeys ?? new Set(),
+        toggle: onToggleFold ?? (() => {}),
+        foldTitle: foldLabel ?? '',
+        unfoldTitle: unfoldLabel ?? '',
+      }
+      if (editor !== null) {
+        editor.view.dispatch(editor.state.tr.setMeta(SECTION_FOLD_META, true))
+      }
+    }, [editor, foldedKeys, onToggleFold, foldLabel, unfoldLabel])
+
+    /**
+     * Auto-unfold when the selection moves (typically arrow keys) into a
+     * block hidden by a fold. Mouse clicks cannot reach display:none nodes,
+     * so this covers keyboard navigation — same contract as the source view.
+     */
+    useEffect(() => {
+      if (editor === null) return
+      const maybeUnfold = (): void => {
+        const { doc, selection } = editor.state
+        const key = foldedKeyAtPos(doc, selection.$from.pos, foldApiRef.current.folds)
+        if (key !== null) foldApiRef.current.toggle(key)
+      }
+      editor.on('selectionUpdate', maybeUnfold)
+      return () => { editor.off('selectionUpdate', maybeUnfold) }
+    }, [editor])
 
     // --- Restore caret after a mode switch (source → richtext) ---
     // The LF offset saved by NodeCard before the switch is converted to a PM

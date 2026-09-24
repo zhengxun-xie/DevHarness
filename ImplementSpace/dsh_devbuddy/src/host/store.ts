@@ -7,10 +7,12 @@
  * directory. Removing a project never touches project files.
  */
 import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs'
+import { execFile } from 'node:child_process'
 import { isAbsolute, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type {
   CreateDrawingResult,
+  CreateProjectResult,
   DevBuddyRegistry,
   DevBuddyState,
   DrawingView,
@@ -53,12 +55,25 @@ export type WorkspaceProvider = () => readonly WorkspaceInfo[]
  */
 export type WorkspaceEnsurer = (path: string, title?: string) => Promise<boolean>
 
+/**
+ * Create a DSH session for a project and send a welcome prompt into it, so
+ * the session has a turn and is persisted (blank sessions are dropped).
+ * Attached lazily from the plugin fiber, backed by the injected
+ * session-controller. Resolves the session id, or null on failure.
+ */
+export type SessionBootstrapper = (
+  path: string,
+  workspaceId: string | null,
+  welcome: string,
+) => Promise<string | null>
+
 /** Host-side DevBuddy facade over the registry and project files. */
 export class DevBuddyStore {
   private readonly registryPath: string
   private workspaceProvider: WorkspaceProvider | null = null
   private workspaceEnsurer: WorkspaceEnsurer | null = null
   private workspaceArchiveChecker: ((sessionId: string) => boolean) | null = null
+  private sessionBootstrapper: SessionBootstrapper | null = null
 
   constructor(dshHomeDir: string = dshHome()) {
     this.registryPath = resolve(dshHomeDir, 'devbuddy', 'registry.json')
@@ -77,6 +92,11 @@ export class DevBuddyStore {
   /** Wire the archive-membership test (called from ctx.inject). */
   attachWorkspaceArchiveChecker(checker: (sessionId: string) => boolean): void {
     this.workspaceArchiveChecker = checker
+  }
+
+  /** Wire the create-session-with-welcome bootstrapper (ctx.inject). */
+  attachSessionBootstrapper(bootstrapper: SessionBootstrapper): void {
+    this.sessionBootstrapper = bootstrapper
   }
 
   /** Whether a session is archived. False when the registry is unavailable. */
@@ -160,6 +180,7 @@ export class DevBuddyStore {
           title: chosen.title,
           samePath: chosen.path === canonical,
           sessionCount: chosen.sessionCount,
+          latestSessionId: chosen.latestSessionId,
         }
       }
     }
@@ -171,6 +192,7 @@ export class DevBuddyStore {
       title: match.title,
       samePath: true,
       sessionCount: match.sessionCount,
+      latestSessionId: match.latestSessionId,
     }
   }
 
@@ -189,7 +211,12 @@ export class DevBuddyStore {
    * fresh, the two M0 node files are seeded from templates — existing files
    * are never overwritten (importing an existing project adopts them).
    */
-  async createProject(input: { name: string; path: string }): Promise<ProjectSummary> {
+  async createProject(input: {
+    name: string
+    path: string
+    initGit?: boolean
+    welcome?: string
+  }): Promise<CreateProjectResult> {
     const name = input.name?.trim()
     const rawPath = input.path?.trim()
     if (!name) throw new Error('project name is required')
@@ -231,7 +258,37 @@ export class DevBuddyStore {
     // existing same-path workspace is reused untouched); best-effort so a
     // registry fault never blocks project creation.
     await this.ensureWorkspaceFor(absolute, name)
-    return this.summarize(created)
+    // Optional host-side init actions (checked in the form); each is
+    // best-effort so a missing git binary or session-controller never blocks
+    // creation. The welcome prompt bootstraps a persisted (non-blank) session;
+    // the client then navigates to it via ui-workspace openSession.
+    if (input.initGit === true) await runGitInit(absolute)
+    let initialSessionId: string | null = null
+    const welcome = input.welcome?.trim()
+    if (welcome !== undefined && welcome !== '') {
+      const workspaceId = this.resolveWorkspace(created)?.workspaceId ?? null
+      initialSessionId = await this.bootstrapSession(absolute, workspaceId, welcome)
+    }
+    return { ...this.summarize(created), initialSessionId }
+  }
+
+  /** Create a session and send its welcome prompt (best-effort). */
+  private async bootstrapSession(
+    path: string,
+    workspaceId: string | null,
+    welcome: string,
+  ): Promise<string | null> {
+    if (this.sessionBootstrapper === null) return null
+    try {
+      const sessionId = await this.sessionBootstrapper(path, workspaceId, welcome)
+      if (sessionId === null) {
+        process.stderr.write(`[dsh-devbuddy-left] could not bootstrap session for ${path}\n`)
+      }
+      return sessionId
+    } catch (error) {
+      process.stderr.write(`[dsh-devbuddy-left] session bootstrap failed for ${path}: ${String(error)}\n`)
+      return null
+    }
   }
 
   /** Seed missing node files for a freshly registered project; never overwrite. */
@@ -399,5 +456,20 @@ function emptyDrawingScene(): string {
     elements: [],
     appState: { gridSize: null, viewBackgroundColor: '#ffffff' },
     files: {},
+  })
+}
+
+/**
+ * Initialize a git repository in the project directory (best-effort): a
+ * missing `git` binary only logs and never blocks project creation.
+ */
+function runGitInit(cwd: string): Promise<void> {
+  return new Promise((resolve) => {
+    execFile('git', ['init'], { cwd }, (error) => {
+      if (error !== null) {
+        process.stderr.write(`[dsh-devbuddy-left] git init failed in ${cwd}: ${error.message}\n`)
+      }
+      resolve()
+    })
   })
 }

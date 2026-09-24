@@ -2,7 +2,7 @@
 schemaVersion: 2
 review_id: REV-0003
 number: 2
-document: CoreRequirements.md
+document: Intent.md
 document_sha: '33977ec8d651b0a9c9c35a9d03961e20ac96e3f76c5c43c9b28cc51a978fc035'
 type: suggestion
 severity: major

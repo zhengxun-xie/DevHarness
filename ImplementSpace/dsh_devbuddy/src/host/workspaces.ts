@@ -63,18 +63,32 @@ export function workspaceInfoProvider(registry: WorkspaceRegistryLike): () => re
     } catch {
       return []
     }
+    let archived: readonly string[] = []
+    try {
+      archived = registry.archivedSessionIds ?? []
+    } catch {
+      // Without the archive set, treat every session as live.
+    }
     return rows.map((workspace) => {
-      let sessionCount = 0
+      let sessionIds: readonly string[] = []
       try {
-        sessionCount = workspace.sessionIds.length
+        sessionIds = workspace.sessionIds
       } catch {
         // A vanished session header must not blank the whole workspace list.
+      }
+      // sessionIds is ordered newest-first (bootstrap sorts headers by
+      // createdAt desc; attachSession prepends). Skip archived sessions: a
+      // project switch must not land on a hidden-from-surface conversation.
+      let latestSessionId: string | null = null
+      for (const id of sessionIds) {
+        if (!archived.includes(id)) { latestSessionId = id; break }
       }
       return {
         id: workspace.id,
         title: workspace.title,
         path: workspace.path,
-        sessionCount,
+        sessionCount: sessionIds.length,
+        latestSessionId,
       }
     })
   }

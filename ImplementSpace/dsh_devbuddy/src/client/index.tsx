@@ -33,7 +33,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import { mountDevbuddyPanel } from './devbuddy-mount.tsx'
 import { mountDevbuddySidebarEntry } from './sidebar-entry.ts'
 import { createPanelController } from './panelController.ts'
-import type { SessionsNav } from './WorkspaceBar.tsx'
+import type { UiWorkspaceNav } from './WorkspaceBar.tsx'
 import { dictionaries, type DevBuddyKey } from './locales.ts'
 import { ensureStyles } from './styles.ts'
 
@@ -51,9 +51,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /**
  * Required browser services: the locale dictionaries, the session
  * right-sidebar navigation face (the header's expand control), and the
- * sessions service (new-session-in-project from the workspace status bar).
+ * ui-workspace navigation service (switch DSH workspace/session on project
+ * switch and for "new session in project").
  */
-export const inject = ['locale', 'sidebarRight', 'sessions']
+export const inject = ['locale', 'sidebarRight', 'uiWorkspace']
 
 /** Client plugin body: DOM sidebar row + DOM center-column takeover. */
 export function apply(ctx: ClientContext): void {
@@ -63,9 +64,10 @@ export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS)
 
   const controller = createPanelController()
-  // Tolerate an older shell without the client sessions service published:
-  // the panel still mounts; WorkspaceBar disables "new session" in that case.
-  const sessions = (ctx as unknown as { sessions?: SessionsNav }).sessions ?? null
+  // Tolerate an older shell without the ui-workspace service published: the
+  // panel still mounts; project switch just does not re-point the DSH
+  // workspace/session underneath, and "new session" is disabled.
+  const uiWorkspace = (ctx as unknown as { uiWorkspace?: UiWorkspaceNav }).uiWorkspace ?? null
 
   // The cores self-heal while the shell is still mounting (page-wide
   // MutationObserver hub), so the mounts can be installed immediately. The
@@ -80,7 +82,7 @@ export function apply(ctx: ClientContext): void {
     controller,
     t,
     sidebarRight: ctx.sidebarRight,
-    sessions,
+    uiWorkspace,
     locale: ctx.locale,
   })
 

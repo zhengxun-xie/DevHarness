@@ -10,11 +10,18 @@
  *     without losing either draft — the active segment is highlighted
  *     exactly like the editor's mode buttons;
  *   - an amber dirty dot marks unsaved edits;
- *   - 保存/放弃 show only while editing (rich-text or source); switching
- *     between the two editing surfaces does NOT auto-save (both hold the
- *     shared draft); a failed write keeps the card in the editing mode so the
- *     unsaved text is never dropped; discarding just resets the draft to the
- *     saved text.
+ *   - a file-diff ICON SWITCH sits next to the mode segments; pressed, the
+ *     editing surface is replaced in place by a read-only single-column
+ *     unified diff (DiffView — red '-' removed / green '+' added lines
+ *     painted on the document itself, not a two-column comparison);
+ *     pressing it again (or 保存/放弃, or clicking a mode segment) returns
+ *     to the editor; switching between the two editing surfaces does NOT
+ *     auto-save (both hold the shared draft); a failed write keeps the card
+ *     in the editing mode so the unsaved text is never dropped; discarding
+ *     just resets the draft to the saved text.
+ *   - closing the tab/window while dirty auto-saves out of band
+ *     (pagehide/beforeunload → sendBeacon/keepalive POST), so unsaved edits
+ *     still reach disk when the web page goes away.
  *
  * Rich-text (richtext) surface: a Tiptap WYSIWYG Markdown editor
  * (`RichTextEditor`) that round-trips through `@tiptap/markdown`. The draft
@@ -48,6 +55,7 @@ import {
   type RichTextEditorHandle,
   type RichTextToolbarLabels,
 } from './RichTextEditor.tsx'
+import { DiffView, type DiffViewLabels } from './DiffView.tsx'
 import {
   buildAnchorDraft,
   getDocumentReviews,
@@ -68,7 +76,7 @@ import type { NodeMeta } from '../protocol.ts'
  */
 declare module '@deepseek-ai/dsh-client-ui-sidebar-right/client' {
   interface SidebarRightTabParamsMap {
-    'devbuddy-reviewer': {
+    'devreviewer': {
       view?: string
       projectId?: string
       reviewId?: string
@@ -104,6 +112,10 @@ export interface NodeCardLabels {
   saved: string
   /** Discard unsaved edits and reset the draft to the saved text. */
   discard: string
+  /** Tooltip of the diff icon switch; toggles the inline saved-vs-draft view. */
+  diff: string
+  /** Copy for the inline saved-vs-draft view. */
+  diffView: DiffViewLabels
   notFound: string
   empty: string
   updated: string
@@ -117,6 +129,10 @@ export interface NodeCardLabels {
   addReview: string
   /** In-place selection bubble: close button label. */
   closeReview: string
+  /** Section fold chevron tooltip / collapsed-region placeholder. */
+  foldSection: string
+  unfoldSection: string
+  foldedLines: string
   /** Rich-text surface formatting toolbar copy. */
   toolbar: RichTextToolbarLabels
 }
@@ -130,9 +146,14 @@ export interface NodeCardProps {
   /** Right-sidebar navigation face; opens the Reviewer tab on gutter clicks. */
   sidebarRight?: ISidebarRight
   /** Reports card face changes so the parent can broadcast the doc tree. */
-  onModeChange?: (nodeId: string, mode: NodeMode) => void
+  onModeChange?: (projectId: string, nodeId: string, mode: NodeMode) => void
   /** Registers (and unregisters via null) the edit-mode caret resolver. */
-  registerCaretProvider?: (nodeId: string, provider: CaretProvider | null) => void
+  registerCaretProvider?: (projectId: string, nodeId: string, provider: CaretProvider | null) => void
+  /**
+   * Registers (and unregisters via null) an auto-save handle invoked by the
+   * parent right before a project switch, so unsaved edits reach disk.
+   */
+  registerSaveHandle?: (projectId: string, nodeId: string, handle: (() => Promise<void>) | null) => void
 }
 
 function formatTime(iso: string | null): string {
@@ -144,6 +165,26 @@ function formatTime(iso: string | null): string {
   }
 }
 
+/**
+ * File-diff glyph for the header switch: a document outline with a '+' mark
+ * and a '-' mark on it (monochrome currentColor; the actual red/green only
+ * appears in the inline diff rows).
+ */
+function DiffIcon(): JSX.Element {
+  return (
+    <svg
+      width="14" height="14" viewBox="0 0 16 16" fill="none"
+      stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9.5 1.8H4.2A1.2 1.2 0 0 0 3 3v10a1.2 1.2 0 0 0 1.2 1.2h7.6A1.2 1.2 0 0 0 13 13V5.3L9.5 1.8z" />
+      <path d="M9.5 1.8v3.5H13" />
+      <path d="M5.5 9.2h2.2M6.6 8.1v2.2" />
+      <path d="M9.4 11.7h2.2" />
+    </svg>
+  )
+}
+
 export function NodeCard({
   projectId,
   meta,
@@ -152,14 +193,15 @@ export function NodeCard({
   sidebarRight,
   onModeChange,
   registerCaretProvider,
+  registerSaveHandle,
 }: NodeCardProps) {
   const [mode, setModeState] = useState<NodeMode>('closed')
 
   /** setMode + upward report, keeping the parent's doc-tree snapshot fresh. */
   const setMode = useCallback((next: NodeMode): void => {
     setModeState(next)
-    onModeChange?.(meta.id, next)
-  }, [meta.id, onModeChange])
+    onModeChange?.(projectId, meta.id, next)
+  }, [projectId, meta.id, onModeChange])
   const [draft, setDraft] = useState('')
   /** Whether the draft was ever seeded; keeps unsaved edits across mode switches. */
   const [draftSeeded, setDraftSeeded] = useState(false)
@@ -169,6 +211,22 @@ export function NodeCard({
   const [updatedAt, setUpdatedAt] = useState<string | null>(meta.updatedAt)
   const [status, setStatus] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  /**
+   * Folded section keys (heading `<level>:<text>`, shared by both surfaces).
+   * View-only state: it never alters the draft, and survives richtext↔source
+   * switches because it lives above both editors.
+   */
+  const [foldedKeys, setFoldedKeys] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleFold = useCallback((key: string): void => {
+    setFoldedKeys(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+  /** Whether the inline saved-vs-draft view replaces the editing surface. */
+  const [diffOn, setDiffOn] = useState(false)
   /** Reviewer document projection; empty = no reviews (incl. reviewer absent). */
   const [reviewRows, setReviewRows] = useState<readonly DocumentReviewAnchor[]>([])
   /** Dashed pending selection anchor (raw offsets) + LF offsets for the draft. */
@@ -286,6 +344,12 @@ export function NodeCard({
    */
   const dirty = (mode === 'richtext' || mode === 'source') && draftSeeded && draft !== (content ?? '')
 
+  // Once there is nothing to diff (saved / discarded / collapsed) the inline
+  // view closes itself — the switch must never stay latched with no changes.
+  useEffect(() => {
+    if (!dirty) setDiffOn(false)
+  }, [dirty])
+
   /** Fetch the node body once; later reads reuse the cached content. */
   async function loadContent(): Promise<string> {
     if (content !== null) return content
@@ -316,6 +380,9 @@ export function NodeCard({
    * surfaces hold the same draft in React state.
    */
   async function startEdit(target: 'richtext' | 'source'): Promise<void> {
+    // Any segment click exits the inline diff view (including clicking the
+    // active segment — a natural way back to the editor).
+    setDiffOn(false)
     if (mode === target) return
     try {
       // Seed the draft only on the first edit entry; richtext/source switching
@@ -404,7 +471,7 @@ export function NodeCard({
     const start = Math.max(0, Math.min(pendingLf.start, normalized.length))
     const end = Math.max(start, Math.min(pendingLf.end, normalized.length))
     try {
-      sidebarRight?.openTab('devbuddy-reviewer', {
+      sidebarRight?.openTab('devreviewer', {
         params: {
           projectId,
           document: meta.file,
@@ -466,15 +533,15 @@ export function NodeCard({
   // Each surface registers its caret provider only while it is the active face.
   useEffect(() => {
     if (mode !== 'source' || registerCaretProvider === undefined) return
-    registerCaretProvider(meta.id, caretProviderSource)
-    return () => registerCaretProvider(meta.id, null)
-  }, [mode, meta.id, caretProviderSource, registerCaretProvider])
+    registerCaretProvider(projectId, meta.id, caretProviderSource)
+    return () => registerCaretProvider(projectId, meta.id, null)
+  }, [projectId, mode, meta.id, caretProviderSource, registerCaretProvider])
 
   useEffect(() => {
     if (mode !== 'richtext' || registerCaretProvider === undefined) return
-    registerCaretProvider(meta.id, caretProviderRichtext)
-    return () => registerCaretProvider(meta.id, null)
-  }, [mode, meta.id, caretProviderRichtext, registerCaretProvider])
+    registerCaretProvider(projectId, meta.id, caretProviderRichtext)
+    return () => registerCaretProvider(projectId, meta.id, null)
+  }, [projectId, mode, meta.id, caretProviderRichtext, registerCaretProvider])
 
   // A pending anchor belongs to one surface. Switching surfaces clears it.
   useEffect(() => {
@@ -488,7 +555,7 @@ export function NodeCard({
    */
   const openReviewById = useCallback((reviewId: string): void => {
     try {
-      sidebarRight?.openTab('devbuddy-reviewer', {
+      sidebarRight?.openTab('devreviewer', {
         params: { projectId, reviewId },
       })
     } catch {
@@ -547,6 +614,65 @@ export function NodeCard({
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [mode])
 
+  // Register an auto-save-on-switch handle with the parent. The parent
+  // awaits the outgoing project's handles before the active project changes;
+  // the handle saves only while this card is dirty. Placed after saveFnRef /
+  // dirtyRef (the Ctrl+S effect above), which it reuses.
+  useEffect(() => {
+    if (registerSaveHandle === undefined) return
+    const handle = async (): Promise<void> => {
+      if (!dirtyRef.current) return
+      await saveFnRef.current()
+    }
+    registerSaveHandle(projectId, meta.id, handle)
+    return () => registerSaveHandle(projectId, meta.id, null)
+  }, [projectId, meta.id, registerSaveHandle])
+
+  // Latest on-disk sha for the out-of-band flush (save() updates it after write).
+  const shaRef = useRef(sha)
+  useEffect(() => { shaRef.current = sha }, [sha])
+
+  /**
+   * Unsaved edits independent of card face: a card can be COLLAPSED while
+   * still holding a dirty draft (collapsing never auto-saves). The unload
+   * flush below must answer in that state too, so unlike the UI `dirty`
+   * flag this is not gated on richtext/source mode.
+   */
+  const hasUnsavedEdits = draftSeeded && draft !== (content ?? '')
+  const unsavedRef = useRef(hasUnsavedEdits)
+  useEffect(() => { unsavedRef.current = hasUnsavedEdits }, [hasUnsavedEdits])
+
+  /**
+   * Auto-save when the web page goes away with unsaved edits. `pagehide`
+   * (desktop close AND mobile/bfcache teardown) and `beforeunload` (legacy
+   * desktop) both fire an out-of-band POST via sendBeacon/keepalive — the
+   * handler cannot await a promise. The fired flag suppresses a duplicate
+   * write when both events fire for one close; it rearms on every draft
+   * change (a bfcache-restored page may be edited and closed again).
+   */
+  const flushFiredRef = useRef(false)
+  useEffect(() => {
+    const flush = (): void => {
+      if (flushFiredRef.current || !unsavedRef.current) return
+      flushFiredRef.current = true
+      api.writeNodeBeacon(projectId, meta.id, {
+        content: draftRef.current,
+        expectedSha: shaRef.current,
+      })
+    }
+    window.addEventListener('pagehide', flush)
+    window.addEventListener('beforeunload', flush)
+    return () => {
+      window.removeEventListener('pagehide', flush)
+      window.removeEventListener('beforeunload', flush)
+    }
+  }, [projectId, meta.id])
+
+  // Re-arm the unload flush whenever the draft changed after a prior flush.
+  useEffect(() => {
+    flushFiredRef.current = false
+  }, [draft])
+
   // Keep --dbl-head-h (the sticky offset for the rich-text toolbar, see
   // .dbl-rt-toolbar in styles.ts) in sync with the header's real height —
   // it wraps to two rows when the sidebar is narrow or save/discard appear.
@@ -566,7 +692,7 @@ export function NodeCard({
   return (
     <section ref={cardRootRef} className="dbl-node">
       {/* Whole header toggles collapse/expand; the actions cluster stops
-          propagation so 富文本/源码/放弃/保存 never collapse the card. */}
+          propagation so 富文本/源码/差异/放弃/保存 never collapse the card. */}
       <div
         ref={headRef}
         className="dbl-node-head"
@@ -632,6 +758,21 @@ export function NodeCard({
           {editing && dirty && (
             <span className="dbl-dirty-dot" title={labels.unsaved} aria-label={labels.unsaved} />
           )}
+          {editing && (
+            <button
+              type="button"
+              className="dbl-diff-toggle"
+              title={labels.diff}
+              aria-label={labels.diff}
+              aria-pressed={diffOn}
+              data-active={diffOn}
+              disabled={busy || !dirty}
+              // eslint-disable-next-line react/jsx-no-bind
+              onClick={() => setDiffOn(value => !value)}
+            >
+              <DiffIcon />
+            </button>
+          )}
           {editing && dirty && (
             <button type="button" className="dbl-linkbtn" onClick={discardDraft} disabled={busy}>
               {labels.discard}
@@ -654,44 +795,62 @@ export function NodeCard({
         <div className="dbl-node-meta">{labels.updated}: {formatTime(updatedAt)}</div>
       )}
 
-      {mode === 'richtext' && (
-        <RichTextEditor
-          ref={rtEditorRef}
-          projectId={projectId}
-          documentName={meta.file}
-          value={draft}
-          onChange={setDraft}
-          reviewRows={reviewRows}
-          onSelectionChange={handleSelectionChange}
-          onSelectionClear={clearPending}
-          onAddReview={handleAddReview}
-          onCloseReviewPop={clearPending}
-          onOpenReview={openReviewById}
-          badgeTitle={renderBadgeTitle}
-          addReviewLabel={labels.addReview}
-          closeLabel={labels.closeReview}
-          toolbarLabels={labels.toolbar}
-          restoreCaret={savedCaret}
-        />
-      )}
-      {mode === 'source' && (
-        <LineNumberTextarea
-          ref={sourceEditorRef}
-          value={draft}
-          onChange={setDraft}
-          reviewBadges={gutterBadges}
-          reviewHighlights={reviewHighlights}
-          pendingRange={pendingRange}
-          onSelectionChange={handleSelectionChange}
-          onSelectionClear={clearPending}
-          onAddReview={handleAddReview}
-          onCloseReviewPop={clearPending}
-          onGutterReview={handleGutterReview}
-          badgeTitle={renderBadgeTitle}
-          addReviewLabel={labels.addReview}
-          closeLabel={labels.closeReview}
-          restoreCaret={savedCaret}
-        />
+      {/* The diff switch swaps the editing surface for a read-only unified
+          view rendered on the same document column; switching it off mounts
+          the previous surface (mode is preserved). */}
+      {diffOn ? (
+        <DiffView savedText={content ?? ''} draftText={draft} labels={labels.diffView} />
+      ) : (
+        <>
+          {mode === 'richtext' && (
+            <RichTextEditor
+              ref={rtEditorRef}
+              projectId={projectId}
+              documentName={meta.file}
+              value={draft}
+              onChange={setDraft}
+              reviewRows={reviewRows}
+              onSelectionChange={handleSelectionChange}
+              onSelectionClear={clearPending}
+              onAddReview={handleAddReview}
+              onCloseReviewPop={clearPending}
+              onOpenReview={openReviewById}
+              badgeTitle={renderBadgeTitle}
+              addReviewLabel={labels.addReview}
+              closeLabel={labels.closeReview}
+              foldedKeys={foldedKeys}
+              onToggleFold={toggleFold}
+              foldLabel={labels.foldSection}
+              unfoldLabel={labels.unfoldSection}
+              toolbarLabels={labels.toolbar}
+              restoreCaret={savedCaret}
+            />
+          )}
+          {mode === 'source' && (
+            <LineNumberTextarea
+              ref={sourceEditorRef}
+              value={draft}
+              onChange={setDraft}
+              reviewBadges={gutterBadges}
+              reviewHighlights={reviewHighlights}
+              pendingRange={pendingRange}
+              onSelectionChange={handleSelectionChange}
+              onSelectionClear={clearPending}
+              onAddReview={handleAddReview}
+              onCloseReviewPop={clearPending}
+              onGutterReview={handleGutterReview}
+              badgeTitle={renderBadgeTitle}
+              addReviewLabel={labels.addReview}
+              closeLabel={labels.closeReview}
+              foldedKeys={foldedKeys}
+              onToggleFold={toggleFold}
+              foldLabel={labels.foldSection}
+              unfoldLabel={labels.unfoldSection}
+              foldedLabel={labels.foldedLines}
+              restoreCaret={savedCaret}
+            />
+          )}
+        </>
       )}
       {status !== null && <div className="dbl-status" data-kind={status.kind}>{status.text}</div>}
     </section>

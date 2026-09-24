@@ -35,8 +35,14 @@
  *     reports its two actions through onAddReview / onCloseReviewPop.
  */
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, ChangeEvent } from 'react'
+import type { CSSProperties, ChangeEvent, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { lfOffsetToRaw } from './reviewer-bridge.ts'
+import { collectHeadings, sectionEndLine } from './section-folds.ts'
+import { buildProjection, lfOffsetOf, mapDisplayEdit, rawOffsetOf } from './fold-projection.ts'
+
+/** Stable empty fold set (a fresh Set each render would defeat every memo). */
+const NO_FOLDS: ReadonlySet<string> = new Set()
+const NO_COUNTS: ReadonlyMap<string, number> = new Map()
 
 export type ReviewSeverity = 'info' | 'minor' | 'major' | 'critical'
 
@@ -101,6 +107,15 @@ export interface LineNumberTextareaProps {
   /** Bubble copy. */
   addReviewLabel: string
   closeLabel: string
+  /** Keys of sections currently folded (see section-folds.ts). */
+  foldedKeys?: ReadonlySet<string>
+  /** Toggle one section's folded state. */
+  onToggleFold?: (key: string) => void
+  /** Tooltip for the gutter fold chevron. */
+  foldLabel?: string
+  unfoldLabel?: string
+  /** Cover placeholder before the line count, e.g. "已折叠". */
+  foldedLabel?: string
   /** LF offset to restore caret position after a mode switch (null = skip). */
   restoreCaret?: number | null
 }
@@ -131,6 +146,73 @@ interface OverlayRect {
 const FAB_GAP = 6
 const FAB_HEIGHT = 24
 const FAB_WIDTH = 108
+
+/** Indent unit inserted by Tab (Markdown convention: 2 spaces). */
+const TAB_INDENT = '  '
+
+/** Remove one leading indent level: a tab, or up to TAB_INDENT spaces. */
+function outdentLine(line: string): { text: string; removed: number } {
+  if (line.startsWith('\t')) return { text: line.slice(1), removed: 1 }
+  let removed = 0
+  while (removed < TAB_INDENT.length && removed < line.length && line.charCodeAt(removed) === 32) {
+    removed += 1
+  }
+  return { text: line.slice(removed), removed }
+}
+
+interface IndentEdit {
+  next: string
+  selectionStart: number
+  selectionEnd: number
+}
+
+/**
+ * VS Code-style Tab / Shift-Tab edit over a textarea's raw value. Tab indents
+ * every line the selection touches (or the caret line) by TAB_INDENT;
+ * Shift-Tab removes one leading indent level from each. A selection ending
+ * exactly at the start of a line leaves that trailing line untouched.
+ * Returns null when Shift-Tab finds nothing to remove.
+ */
+function tabEdit(
+  value: string,
+  selectionStart: number,
+  selectionEnd: number,
+  shift: boolean,
+): IndentEdit | null {
+  const lineStart = value.lastIndexOf('\n', selectionStart - 1) + 1
+  // A selection ending right after a '\n' (column 0 of the next line) does
+  // not include that next line.
+  let end = selectionEnd
+  if (end > selectionStart && value.charCodeAt(end - 1) === 10) end -= 1
+  let lineEnd = value.indexOf('\n', end)
+  if (lineEnd === -1) lineEnd = value.length
+  const lines = value.slice(lineStart, lineEnd).split('\n')
+
+  if (shift) {
+    let removedBeforeStart = 0
+    let removedTotal = 0
+    const outdented = lines.map((line, index) => {
+      const result = outdentLine(line)
+      if (index === 0) removedBeforeStart = result.removed
+      removedTotal += result.removed
+      return result.text
+    })
+    if (removedTotal === 0) return null
+    return {
+      next: value.slice(0, lineStart) + outdented.join('\n') + value.slice(lineEnd),
+      selectionStart: Math.max(lineStart, selectionStart - removedBeforeStart),
+      selectionEnd: Math.max(lineStart, selectionEnd - removedTotal),
+    }
+  }
+
+  return {
+    next: value.slice(0, lineStart)
+      + lines.map(line => TAB_INDENT + line).join('\n')
+      + value.slice(lineEnd),
+    selectionStart: selectionStart + TAB_INDENT.length,
+    selectionEnd: selectionEnd + TAB_INDENT.length * lines.length,
+  }
+}
 
 /** Resolve a within-line column to (text node, local offset) inside a mirror
  *  line element (a single plain text node, plus a ZWSP on empty lines). */
@@ -165,6 +247,11 @@ function LineNumberTextarea({
   badgeTitle,
   addReviewLabel,
   closeLabel,
+  foldedKeys,
+  onToggleFold,
+  foldLabel,
+  unfoldLabel,
+  foldedLabel,
   restoreCaret,
 }, ref) {
   const editorRef = useRef<HTMLDivElement>(null)
@@ -174,6 +261,31 @@ function LineNumberTextarea({
   const [overlayRects, setOverlayRects] = useState<readonly OverlayRect[]>([])
   const [fab, setFab] = useState<{ x: number; y: number } | null>(null)
 
+  // --- Fold projection -----------------------------------------------------
+  // A <textarea> cannot hide lines, so a folded body is removed from the value
+  // the textarea DISPLAYS: the content below really moves up instead of being
+  // covered. `value` stays the draft (the owner's truth) and every offset that
+  // crosses this boundary is mapped through `projection` (fold-projection.ts):
+  // selections/reviews out (display → draft), highlights/caret in.
+  const folds = foldedKeys ?? NO_FOLDS
+  const projection = useMemo(() => buildProjection(value, folds), [value, folds])
+  /** What the textarea shows (folded bodies removed). */
+  const display = projection.text
+  // Live offset model for the imperative handle below (its deps are empty, so
+  // reading these directly would freeze the first render's text).
+  const modelRef = useRef({ value, display, projection })
+  modelRef.current = { value, display, projection }
+  /** Review pills arrive keyed by DRAFT line; the gutter shows display lines. */
+  const displayBadges = useMemo(() => {
+    if (!projection.folded || reviewBadges === undefined) return reviewBadges
+    const mapped = new Map<number, GutterBadgeItem[]>()
+    reviewBadges.forEach((items, lineNo) => {
+      const displayLine = projection.lineToDisplay(lineNo - 1)
+      if (displayLine !== null) mapped.set(displayLine + 1, items)
+    })
+    return mapped
+  }, [projection, reviewBadges])
+
   // Imperative caret query for the cross-barrier "add comment at caret"
   // handshake (DEVBUDDY_CARET_REQUEST).
   useImperativeHandle(ref, () => ({
@@ -181,9 +293,11 @@ function LineNumberTextarea({
     getSelectionRange: () => {
       const ta = taRef.current
       if (ta === null) return null
-      const rawStart = ta.selectionStart
-      const rawEnd = ta.selectionEnd
-      return { start: rawStart - crlfBefore(rawStart), end: rawEnd - crlfBefore(rawEnd) }
+      const { value: draft, display: shown, projection: proj } = modelRef.current
+      // Raw display offset → LF display offset → raw draft offset → LF draft.
+      const toDraftLf = (rawDisplay: number): number =>
+        lfOffsetOf(draft, proj.toDraft(rawOffsetOf(shown, lfOffsetOf(shown, rawDisplay))))
+      return { start: toDraftLf(ta.selectionStart), end: toDraftLf(ta.selectionEnd) }
     },
   }), [])
 
@@ -203,13 +317,14 @@ function LineNumberTextarea({
     if (restoreCaret === null || restoreCaret === undefined) return
     const ta = taRef.current
     if (ta === null) return
-    const raw = lfOffsetToRaw(value, restoreCaret)
+    // The caret offset is in DRAFT coordinates; the textarea shows `display`.
+    const raw = projection.toDisplay(lfOffsetToRaw(value, restoreCaret))
     ta.focus({ preventScroll: true })
     ta.setSelectionRange(raw, raw)
     const mirror = mirrorRef.current
     if (mirror === null) return
     grow()
-    const lineIdx = value.slice(0, raw).split('\n').length - 1
+    const lineIdx = display.slice(0, raw).split('\n').length - 1
     const scrollCaretIntoView = (): void => {
       const spans = mirror.querySelectorAll<HTMLElement>('[data-mirror-line]')
       const span = spans[lineIdx]
@@ -226,7 +341,11 @@ function LineNumberTextarea({
   // Memoized: a fresh array on every render made rangeRects a new callback
   // identity each pass, re-running the overlay effect and feeding it back
   // through setOverlayRects — React #185 (Maximum update depth).
-  const lines = useMemo(() => value.split('\n'), [value])
+  const lines = useMemo(() => projection.lines, [projection])
+  // Headings drive the fold affordances; declared early because gutterWidth
+  // and the fold geometry both read them.
+  const headings = useMemo(() => collectHeadings(lines), [lines])
+  const headingByLine = useMemo(() => new Map(headings.map(h => [h.index, h])), [headings])
   // Line numbers are zero-padded to the document's widest number so every
   // tabular-nums glyph slot stays filled (e.g. line 3 in a 114-line doc
   // renders as "003").
@@ -240,7 +359,7 @@ function LineNumberTextarea({
   const gutterWidth = useMemo(() => {
     const lineNumWidth = lineDigits * 8 + 2
     let maxPillsWidth = 0
-    reviewBadges?.forEach(items => {
+    displayBadges?.forEach(items => {
       let rowWidth = 0
       items.forEach((item, index) => {
         const digits = String(item.number).length
@@ -252,8 +371,13 @@ function LineNumberTextarea({
       if (rowWidth > maxPillsWidth) maxPillsWidth = rowWidth
     })
     const pillGap = maxPillsWidth > 0 ? 3 : 0
-    return 4 + maxPillsWidth + pillGap + lineNumWidth + 4
-  }, [lineDigits, reviewBadges])
+    // Reserve the fold chevron slot (14px + 2px gap) when the document has
+    // headings, so heading rows never squeeze the line number.
+    const chevron = headings.length > 0 ? 16 : 0
+    // Folded rows also show how many lines they hide ("▸12").
+    const foldCount = projection.folded ? 16 : 0
+    return 4 + maxPillsWidth + pillGap + chevron + foldCount + lineNumWidth + 4
+  }, [lineDigits, displayBadges, headings, projection.folded])
 
   /** Read each line block's offset from the mirror; identity-stable state. */
   const measureLines = useCallback(() => {
@@ -287,7 +411,9 @@ function LineNumberTextarea({
     if (ta === null || mirror === null) return
     // Keep in sync with .dbl-editor min-height: 9 lines × 22.1px line-height.
     const minHeight = 200
-    const target = Math.max(Math.ceil(mirror.scrollHeight), minHeight)
+    // Folded bodies are absent from the mirror, so the natural content height
+    // already IS the collapsed height — nothing to subtract.
+    const target = Math.max(minHeight, Math.ceil(mirror.scrollHeight))
     if (Math.abs(ta.offsetHeight - target) > 1) {
       ta.style.height = `${target}px`
     }
@@ -301,7 +427,9 @@ function LineNumberTextarea({
   // Measure after every content change (mirror DOM is updated before layout
   // effects run), once on mount, on fonts settling, and whenever the box
   // resizes (window/rightbar drag): soft-wrap changes move every offset.
-  useLayoutEffect(() => { measure() }, [value, measure])
+  // Depends on `display`, not `value`: folding changes the mirror's content
+  // (and height) without the draft changing at all.
+  useLayoutEffect(() => { measure() }, [display, measure])
   useEffect(() => {
     const ro = new ResizeObserver(measure)
     if (taRef.current) ro.observe(taRef.current)
@@ -310,6 +438,25 @@ function LineNumberTextarea({
     void fonts?.ready.then(measure)
     return () => { ro.disconnect() }
   }, [measure])
+
+  // --- Section folds -------------------------------------------------------
+  /**
+   * Body line count per folded heading, shown next to its chevron. Computed
+   * from the DRAFT (a nested heading folded inside a folded parent has no
+   * span of its own in the projection, but still reports its own count).
+   */
+  const foldedCounts = useMemo(() => {
+    if (!projection.folded) return NO_COUNTS
+    const draftLines = value.split('\n')
+    const draftHeadings = collectHeadings(draftLines)
+    const counts = new Map<string, number>()
+    for (const heading of draftHeadings) {
+      if (!folds.has(heading.key)) continue
+      const end = sectionEndLine(draftHeadings, heading.index, draftLines.length)
+      counts.set(heading.key, Math.max(0, end - heading.index))
+    }
+    return counts
+  }, [projection.folded, value, folds])
 
   /**
    * Geometry of a raw-text character range, using mirror line blocks (same
@@ -327,8 +474,8 @@ function LineNumberTextarea({
     const editor = editorRef.current
     if (mirror === null || editor === null) return []
     const spans = mirror.querySelectorAll<HTMLElement>('[data-mirror-line]')
-    const clampedStart = Math.max(0, Math.min(rawStart, value.length))
-    const clampedEnd = Math.max(clampedStart, Math.min(rawEnd, value.length))
+    const clampedStart = Math.max(0, Math.min(rawStart, display.length))
+    const clampedEnd = Math.max(clampedStart, Math.min(rawEnd, display.length))
 
     // Walk raw offsets to (line index, column) pairs. '\n' belongs to the
     // line it terminates; a range ending exactly on '\n' still wraps the line.
@@ -390,7 +537,7 @@ function LineNumberTextarea({
       }
     }
     return result
-  }, [lines, value])
+  }, [lines, display])
 
   /**
    * Geometry of a zero-length point (caret) at a raw offset: the collapsed
@@ -408,7 +555,7 @@ function LineNumberTextarea({
     const editor = editorRef.current
     if (mirror === null || editor === null) return []
     const spans = mirror.querySelectorAll<HTMLElement>('[data-mirror-line]')
-    const clamped = Math.max(0, Math.min(rawOffset, value.length))
+    const clamped = Math.max(0, Math.min(rawOffset, display.length))
     let offset = 0
     let lineIndex = 0
     while (lineIndex < lines.length && offset + lines[lineIndex].length < clamped) {
@@ -452,14 +599,31 @@ function LineNumberTextarea({
       width: 0,
       height: spanRect.height || 22,
     }]
-  }, [lines, value])
+  }, [lines, display])
+
+  /**
+   * Committed highlights arrive in DRAFT offsets and must be painted in
+   * display space. A range swallowed by a fold collapses to a point, which
+   * would paint a stray marker, so it is dropped instead.
+   */
+  const displayHighlights = useMemo(() => {
+    if (!projection.folded || reviewHighlights === undefined) return reviewHighlights
+    const mapped: ReviewOverlayRange[] = []
+    for (const range of reviewHighlights) {
+      const start = projection.toDisplay(range.start)
+      const end = projection.toDisplay(range.end)
+      if (start === end && range.start !== range.end) continue
+      mapped.push({ ...range, start, end })
+    }
+    return mapped
+  }, [projection, reviewHighlights])
 
   // Paint COMMITTED highlights only whenever content, metrics, ranges or
   // wrapped positions change. Uncommitted selections rely on the native
   // textarea selection — pendingRange never reaches the overlay.
   useLayoutEffect(() => {
     const rects: OverlayRect[] = []
-    for (const range of reviewHighlights ?? []) {
+    for (const range of displayHighlights ?? []) {
       const statusClass = `dbl-rv-sev-${range.severity} dbl-rv-anchor-${range.status}`
       if (range.start === range.end) {
         const pieces = pointRects(range.start)
@@ -512,19 +676,60 @@ function LineNumberTextarea({
       }
     }
     setOverlayRects(rects)
-  }, [reviewHighlights, rangeRects, pointRects, positions, value])
+  }, [displayHighlights, rangeRects, pointRects, positions, display])
 
-  function handleChange(event: ChangeEvent<HTMLTextAreaElement>): void {
-    onChange(event.target.value)
+  /** Unfold every folded section (used when an edit cannot be mapped). */
+  function unfoldAll(): void {
+    for (const key of folds) onToggleFold?.(key)
   }
 
-  /** Count CRLF pairs before a raw offset (LF offset model). */
-  function crlfBefore(rawOffset: number): number {
-    let count = 0
-    for (let i = 0; i < rawOffset - 1; i += 1) {
-      if (value.charCodeAt(i) === 13 && value.charCodeAt(i + 1) === 10) count += 1
+  /**
+   * Apply a textarea edit. Unfolded, the display IS the draft and the edit
+   * passes straight through. Folded, the edit is mapped back to draft offsets;
+   * an edit that would consume a folded section (a selection spanning one) is
+   * refused and unfolds instead, so a fold can never silently delete content.
+   */
+  function applyEdit(ta: HTMLTextAreaElement, next: string, caret?: { start: number; end: number }): void {
+    if (!projection.folded) {
+      onChange(next)
+      if (caret === undefined) return
+      const clamp = (offset: number): number => Math.max(0, Math.min(offset, next.length))
+      requestAnimationFrame(() => { ta.setSelectionRange(clamp(caret.start), clamp(caret.end)) })
+      return
     }
-    return count
+    const mapped = mapDisplayEdit(value, projection, next)
+    if (mapped === null) {
+      unfoldAll()
+      return
+    }
+    onChange(mapped.draft)
+    // The projection can change shape (a heading edit re-keys its section):
+    // recompute where the caret lives in the new display text.
+    const caretDisplay = buildProjection(mapped.draft, folds).toDisplay(mapped.caret)
+    requestAnimationFrame(() => { ta.setSelectionRange(caretDisplay, caretDisplay) })
+  }
+
+  function handleChange(event: ChangeEvent<HTMLTextAreaElement>): void {
+    applyEdit(event.target, event.target.value)
+  }
+
+  /** VS Code-style Tab indentation — never move focus out of the editor. */
+  function handleKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>): void {
+    if (event.key !== 'Tab') return
+    event.preventDefault()
+    const ta = event.currentTarget
+    const edit = tabEdit(ta.value, ta.selectionStart, ta.selectionEnd, event.shiftKey)
+    if (edit === null) return
+    // Controlled textarea: the parent re-renders after this tick, so the caret
+    // is restored once React has committed the new value.
+    applyEdit(ta, edit.next, { start: edit.selectionStart, end: edit.selectionEnd })
+  }
+
+  /** Display raw offset → draft LF offset (the owner's offset model). */
+  function displayToDraftLf(rawDisplay: number): number {
+    const lfDisplay = lfOffsetOf(display, rawDisplay)
+    const rawDraft = projection.toDraft(rawOffsetOf(display, lfDisplay))
+    return lfOffsetOf(value, rawDraft)
   }
 
   /** Snapshot the current selection for the owner and position the bubble. */
@@ -550,10 +755,11 @@ function LineNumberTextarea({
       : first.top + first.height + FAB_GAP
     setFab({ x, y })
     onSelectionChange({
-      lfStart: rawStart - crlfBefore(rawStart),
-      lfEnd: rawEnd - crlfBefore(rawEnd),
+      lfStart: displayToDraftLf(rawStart),
+      lfEnd: displayToDraftLf(rawEnd),
     })
-  }, [onSelectionChange, onSelectionClear, rangeRects])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onSelectionChange, onSelectionClear, rangeRects, display, projection, value])
 
   // Debounced selection broadcast: selectionchange covers keyboard/drag,
   // mouseup/keyup catch a just-finished drag promptly.
@@ -620,14 +826,43 @@ function LineNumberTextarea({
       {/* Not aria-hidden: the gutter can contain focusable review pills. */}
       <div className="dbl-editor-gutter" onClick={focusTextarea}>
         {lines.map((_, index) => {
+          // Hidden body lines are absent from `lines` entirely — the gutter
+          // simply has fewer rows, so numbers stay aligned with the text.
           const lineNo = index + 1
-          const items = reviewBadges?.get(lineNo)
+          const items = displayBadges?.get(lineNo)
+          const heading = headingByLine.get(index)
+          const sectionFolded = heading !== undefined && foldedKeys?.has(heading.key) === true
+          const hiddenCount = heading === undefined ? 0 : (foldedCounts.get(heading.key) ?? 0)
           return (
             <span
               key={index}
               className="dbl-editor-ln"
               style={{ top: positions[index] ?? index * 22 }}
             >
+              {heading !== undefined && onToggleFold !== undefined && (
+                <button
+                  type="button"
+                  className="dbl-fold-chevron"
+                  title={sectionFolded ? unfoldLabel : foldLabel}
+                  aria-label={sectionFolded ? unfoldLabel : foldLabel}
+                  aria-expanded={!sectionFolded}
+                  // eslint-disable-next-line react/jsx-no-bind
+                  onClick={event => {
+                    event.stopPropagation()
+                    onToggleFold(heading.key)
+                  }}
+                >
+                  {sectionFolded ? '▸' : '▾'}
+                </button>
+              )}
+              {sectionFolded && hiddenCount > 0 && (
+                <span
+                  className="dbl-fold-count"
+                  title={`${foldedLabel ?? ''} · ${hiddenCount}`}
+                >
+                  {hiddenCount}
+                </span>
+              )}
               {items !== undefined && items.length > 0 && (
                 <span className="dbl-rv-badges">
                   {items.map(item => (
@@ -640,7 +875,7 @@ function LineNumberTextarea({
                       // eslint-disable-next-line react/jsx-no-bind
                       onClick={event => {
                         event.stopPropagation()
-                        onGutterReview?.(lineNo, item.reviewId)
+                        onGutterReview?.(projection.displayLineToDraft(index) + 1, item.reviewId)
                       }}
                     >
                       {item.number}
@@ -656,9 +891,10 @@ function LineNumberTextarea({
       <textarea
         ref={taRef}
         className="dbl-editor-ta"
-        value={value}
+        value={display}
         spellCheck={false}
         onChange={handleChange}
+        onKeyDown={handleKeyDown}
       />
       {/* Highlight overlay — shares the mirror's geometry; never intercepts
           pointer events. */}

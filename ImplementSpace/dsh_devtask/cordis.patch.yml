@@ -1,0 +1,14 @@
+# dsh-devtask bundle patch: inserts the dual-face plugin row into the web
+# profile roster. The node half (exports ".") runs in the DSH host process and
+# serves /api/devtask/* over loopback; the dsh.client declaration in
+# package.json makes the browser half (exports "./client", served at
+# /plugins/dsh-devtask/client.js) load in the web GUI, where it injects a
+# plain-DOM row into the LEFT sidebar beside the New Session control and its
+# wide board body into the center column as a DOM-level takeover.
+#
+# It coexists with the sibling left-sidebar plugin (dsh-devbuddy-left) and the
+# right-sidebar plugin (dsh-devreviewer): distinct bundle id, distinct API
+# prefix, and its own on-disk registry (~/.dsh/devtask/).
+- insert:
+    - id: devtask
+      name: 'dsh-devtask'

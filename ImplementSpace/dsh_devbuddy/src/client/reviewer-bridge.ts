@@ -1,11 +1,11 @@
 /**
- * Bridge to the dsh-devbuddy-reviewer plugin (design/05 §2).
+ * Bridge to the dsh-devreviewer plugin (design/05 §2).
  *
  * Two seams, both same-origin window.postMessage / loopback HTTP:
  *
  *   1. Change subscription — DEVBUDDY_REVIEW_CHANGED arrives whenever a
  *      review is created/removed, so the gutter pills + overlay refresh.
- *   2. Reviewer read API — GET /api/devbuddy/document (the Reviewer host
+ *   2. Reviewer read API — GET /api/devreviewer/document (the Reviewer host
  *      half's prefix) returns the per-document anchor projection used to
  *      paint the #N pills and inline highlights. Failure is non-fatal: the
  *      editor simply shows no marks when the Reviewer plugin is absent.
@@ -13,16 +13,16 @@
  * New selections never cross this bridge: the in-place "add review" bubble
  * hands a ReviewAnchorDraft straight to openTab() params. The two plugins do
  * not import one another; these shapes duplicate the wire contract from
- * dsh_reviewerSidebar/src/protocol.ts.
+ * dsh_devReviewer/src/protocol.ts.
  */
 
-const REVIEWER_API_PREFIX = '/api/devbuddy'
+const REVIEWER_API_PREFIX = '/api/devreviewer'
 const CHANGED_TYPE = 'DEVBUDDY_REVIEW_CHANGED'
 const DOC_TREE_TYPE = 'DEVBUDDY_DOC_TREE'
 const DOC_TREE_REQUEST_TYPE = 'DEVBUDDY_DOC_TREE_REQUEST'
 const CARET_TYPE = 'DEVBUDDY_CARET'
 const CARET_REQUEST_TYPE = 'DEVBUDDY_CARET_REQUEST'
-const SOURCE_REVIEWER = 'devbuddy-reviewer'
+const SOURCE_REVIEWER = 'devreviewer'
 const SOURCE_LEFT = 'devbuddy-left'
 
 export const MAX_SELECTION_CHARS = 4000
@@ -51,7 +51,7 @@ export interface ReviewChangedMessage {
   reviewIds: string[]
 }
 
-/** Gutter projection row from GET /api/devbuddy/document. */
+/** Gutter projection row from GET /api/devreviewer/document. */
 export interface DocumentReviewAnchor {
   reviewId: string
   /** Per-document number shown on gutter/inline markers (#N). */

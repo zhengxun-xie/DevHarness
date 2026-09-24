@@ -9,6 +9,7 @@
  * @module dsh-devbuddy-left
  */
 import { fileURLToPath } from 'node:url'
+import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import { DevBuddyStore } from './host/store.ts'
 import { devbuddyRoutes } from './host/routes.ts'
@@ -52,6 +53,34 @@ export function apply(ctx: Context): void {
     projectId => store.resolveAiContext(projectId),
     sessionId => store.isSessionArchived(sessionId),
   )
+
+  // "创建新会话": create a session in the project's workspace and queue a
+  // welcome prompt into it. A session with a committed turn is persisted; a
+  // blank session would be dropped when navigating away. We don't follow the
+  // assistant reply — the prompt is just the persistence marker.
+  store.attachSessionBootstrapper(async (path, workspaceId, welcome) => {
+    const controller = sessionController
+    if (controller === null) return null
+    try {
+      const created = await controller.create(
+        workspaceId !== null ? { workspaceId } : { cwd: path },
+      )
+      const id = created?.sessionId ?? created?.id
+      if (typeof id !== 'string' || id === '') return null
+      await controller.prompt(
+        {
+          requestId: randomUUID(),
+          sessionId: id,
+          mode: 'queue',
+          content: [{ type: 'text', text: welcome }],
+        },
+        AbortSignal.timeout(60_000),
+      )
+      return id
+    } catch {
+      return null
+    }
+  })
 
   ctx.effect(() => {
     const disposers = devbuddyRoutes(store, excalidrawBundlePath, aiService)
