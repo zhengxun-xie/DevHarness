@@ -70,6 +70,25 @@ async function openSessionBestEffort(uiWorkspace: UiWorkspaceNav, sessionId: str
   }
 }
 
+/**
+ * Re-point DSH's active workspace/session at a project's workspace link so
+ * the session area follows. When the workspace already has a session, bind
+ * to its most recent one instead of creating a new session; openWorkspace is
+ * used only when it has none. Best-effort — navigation failure is swallowed
+ * and must never disturb the caller's flow.
+ */
+function repointWorkspaceSession(uiWorkspace: UiWorkspaceNav | null, link: WorkspaceLink | null | undefined): void {
+  if (uiWorkspace === null) return
+  const latestSessionId = link?.latestSessionId ?? null
+  if (latestSessionId !== null) {
+    void openSessionBestEffort(uiWorkspace, latestSessionId)
+  } else if (link?.workspaceId !== undefined) {
+    void uiWorkspace.openWorkspace(link.workspaceId).catch(() => {
+      // Navigation failure must not disturb the project switch.
+    })
+  }
+}
+
 export function DevBuddyPanel({ t, sidebarRight, uiWorkspace, panelController }: DevBuddyPanelProps) {
   const [state, setState] = useState<DevBuddyState | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -86,11 +105,19 @@ export function DevBuddyPanel({ t, sidebarRight, uiWorkspace, panelController }:
     const onOpen = (event: Event) => {
       const projectId = (event as CustomEvent<{ project?: { id?: string } }>).detail?.project?.id
       if (projectId === undefined || !state?.projects.some(project => project.id === projectId)) return
-      void api.openProject(projectId).then(setState).catch(caught => setError(caught instanceof Error ? caught.message : String(caught)))
+      void api.openProject(projectId).then(next => {
+        setState(next)
+        // The displayed project switched here too: mirror the session onto
+        // it, exactly like a tab click. Navigate from the freshly returned
+        // link, not the event's snapshot copy (it can predate sessions
+        // created since). Best-effort.
+        const project = next.projects.find(candidate => candidate.id === projectId)
+        if (project !== undefined) repointWorkspaceSession(uiWorkspace, project.workspace)
+      }).catch(caught => setError(caught instanceof Error ? caught.message : String(caught)))
     }
     window.addEventListener('dsh:devbuddy:open', onOpen)
     return () => window.removeEventListener('dsh:devbuddy:open', onOpen)
-  }, [state?.projects])
+  }, [state?.projects, uiWorkspace])
 
   const docTreeNodes = useMemo<DocTreeNode[]>(() => {
     if (active === null) return []
@@ -239,19 +266,8 @@ export function DevBuddyPanel({ t, sidebarRight, uiWorkspace, panelController }:
       setSwitching(false)
     }
     // Re-point DSH's active workspace/session at the new project so the
-    // session right sidebar follows the switch. When the workspace already
-    // has a session, bind to its most recent one instead of creating a new
-    // session; openWorkspace is used only when it has none. Best-effort.
-    if (uiWorkspace !== null) {
-      const latestSessionId = freshLink?.latestSessionId ?? null
-      if (latestSessionId !== null) {
-        void openSessionBestEffort(uiWorkspace, latestSessionId)
-      } else if (freshLink?.workspaceId !== undefined) {
-        void uiWorkspace.openWorkspace(freshLink.workspaceId).catch(() => {
-          // Navigation failure must not disturb the project switch.
-        })
-      }
-    }
+    // session right sidebar follows the switch.
+    repointWorkspaceSession(uiWorkspace, freshLink)
   }, [active?.id, uiWorkspace])
 
   const refresh = useCallback(async () => {
@@ -263,9 +279,41 @@ export function DevBuddyPanel({ t, sidebarRight, uiWorkspace, panelController }:
     }
   }, [])
 
+  /**
+   * Entering the plugin surface: fetch fresh state, then perform the default
+   * switch action — re-point DSH's workspace/session at the displayed
+   * project, exactly like a tab click, so the session area follows. The link
+   * comes from the just-fetched snapshot (a stale one could miss sessions
+   * created since and would create a blank session instead of reusing).
+   */
+  const enterSync = useCallback(async (): Promise<void> => {
+    try {
+      const fresh = await api.state()
+      setState(fresh)
+      setError(null)
+      const displayed = fresh.projects.find(project => project.id === fresh.activeProjectId)
+        ?? fresh.projects[0]
+        ?? null
+      repointWorkspaceSession(uiWorkspace, displayed?.workspace ?? null)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught))
+    }
+  }, [uiWorkspace])
+
+  // Entering the surface covers two timings that this one effect unifies:
+  //   - first entry: the mount core creates the React root only while the
+  //     controller is open, so mount coincides with the first open
+  //   - later entries: the tree stays mounted across close/reopen (drafts
+  //     survive), so each re-entry arrives as a controller open transition
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    let prevOpen = panelController.isOpen()
+    if (prevOpen) void enterSync()
+    return panelController.subscribe(() => {
+      const open = panelController.isOpen()
+      if (open && !prevOpen) void enterSync()
+      prevOpen = open
+    })
+  }, [panelController, enterSync])
 
   const nodeLabels = {
     richtext: t('node.richtext'),

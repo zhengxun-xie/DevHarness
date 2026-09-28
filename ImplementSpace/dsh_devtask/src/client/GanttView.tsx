@@ -22,8 +22,12 @@ export interface GanttViewProps {
   t: TranslateNS<'devTaskLeft'>
   /** 员工名册，用于展示负责人姓名。 */
   employees: DevTaskState['employees']
-  /** 点击任务/子任务时打开编辑对话框。 */
-  onEditTask(task: TaskRecord): void
+  /** 点击任务/子任务时打开任务日志板块。 */
+  onOpenTaskLog(task: TaskRecord): void
+  /** 悬停任务/子任务标题：预取其日志 feed（DevTaskPanel 防抖 300ms）。 */
+  onHoverTaskLog(task: TaskRecord): void
+  /** 悬停离开：取消尚未触发的预取。 */
+  onHoverEnd(): void
 }
 
 const DAY_MS = 86_400_000
@@ -183,14 +187,16 @@ function barStyleFor(task: TaskRecord, scale: Scale | null): { left: string; wid
 
 /** 单行任务（父行或缩进的子任务行）。 */
 const GanttLine = memo(function GanttLine({
-  task, children, scale, employees, onEditTask, depth,
+  task, children, scale, employees, onOpenTaskLog, onHoverTaskLog, onHoverEnd, depth,
 }: {
   task: TaskRecord
   /** 模块子任务，仅用于父行进度推导；子任务行传空数组。 */
   children: TaskRecord[]
   scale: Scale | null
   employees: DevTaskState['employees']
-  onEditTask(task: TaskRecord): void
+  onOpenTaskLog(task: TaskRecord): void
+  onHoverTaskLog(task: TaskRecord): void
+  onHoverEnd(): void
   depth: number
 }) {
   const owner = task.employeeId === null
@@ -206,8 +212,10 @@ const GanttLine = memo(function GanttLine({
           type="button"
           className="dtk-gantt-title"
           title={task.description !== '' ? task.description : task.title}
+          onPointerEnter={() => onHoverTaskLog(task)}
+          onPointerLeave={onHoverEnd}
           // eslint-disable-next-line react/jsx-no-bind
-          onClick={() => onEditTask(task)}
+          onClick={() => onOpenTaskLog(task)}
         >
           {task.title}
         </button>
@@ -244,12 +252,14 @@ const GanttLine = memo(function GanttLine({
 
 /** 一行父任务 + 其缩进的子任务行。 */
 const GanttRowView = memo(function GanttRowView({
-  row, scale, employees, onEditTask,
+  row, scale, employees, onOpenTaskLog, onHoverTaskLog, onHoverEnd,
 }: {
   row: GanttRow
   scale: Scale | null
   employees: DevTaskState['employees']
-  onEditTask(task: TaskRecord): void
+  onOpenTaskLog(task: TaskRecord): void
+  onHoverTaskLog(task: TaskRecord): void
+  onHoverEnd(): void
 }) {
   const { task, children } = row
   return (
@@ -259,7 +269,9 @@ const GanttRowView = memo(function GanttRowView({
         children={children}
         scale={scale}
         employees={employees}
-        onEditTask={onEditTask}
+        onOpenTaskLog={onOpenTaskLog}
+        onHoverTaskLog={onHoverTaskLog}
+        onHoverEnd={onHoverEnd}
         depth={0}
       />
       {children.map(child => (
@@ -269,7 +281,9 @@ const GanttRowView = memo(function GanttRowView({
           children={[]}
           scale={scale}
           employees={employees}
-          onEditTask={onEditTask}
+          onOpenTaskLog={onOpenTaskLog}
+          onHoverTaskLog={onHoverTaskLog}
+          onHoverEnd={onHoverEnd}
           depth={1}
         />
       ))}
@@ -278,7 +292,7 @@ const GanttRowView = memo(function GanttRowView({
 })
 
 /** 甘特图视图。 */
-export function GanttView({ tasks, t, employees, onEditTask }: GanttViewProps) {
+export function GanttView({ tasks, t, employees, onOpenTaskLog, onHoverTaskLog, onHoverEnd }: GanttViewProps) {
   const scale = useMemo(() => buildScale(
     tasks.map(taskWindow).filter((w): w is { start: number; end: number } => w !== null),
   ), [tasks])
@@ -334,7 +348,9 @@ export function GanttView({ tasks, t, employees, onEditTask }: GanttViewProps) {
             row={row}
             scale={scale}
             employees={employees}
-            onEditTask={onEditTask}
+            onOpenTaskLog={onOpenTaskLog}
+            onHoverTaskLog={onHoverTaskLog}
+            onHoverEnd={onHoverEnd}
           />
         ))}
         {unscheduled.length > 0 && (
@@ -346,7 +362,9 @@ export function GanttView({ tasks, t, employees, onEditTask }: GanttViewProps) {
                 row={row}
                 scale={scale}
                 employees={employees}
-                onEditTask={onEditTask}
+                onOpenTaskLog={onOpenTaskLog}
+                onHoverTaskLog={onHoverTaskLog}
+                onHoverEnd={onHoverEnd}
               />
             ))}
           </>

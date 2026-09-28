@@ -8,9 +8,14 @@
 import {
   DEVTASK_API_PREFIX,
   type ActivityFeed,
+  type CreateTaskLogRequest,
   type DevTaskState,
   type ErrorBody,
+  type LogSubjectKind,
+  type RemoveTaskLogRequest,
+  type TaskLogResponse,
   type TaskPatch,
+  type UpdateTaskLogRequest,
 } from '../protocol.ts'
 
 /**
@@ -69,6 +74,9 @@ export const api = {
   selectView: (id: string): Promise<DevTaskState> =>
     post<DevTaskState>('/views/select', { id }),
 
+  // 子任务：parentId 指定父任务时 host 会解析父记录并继承 KR 归属；
+  // employeeId '' = 明确不指派（undefined = 继承 父任务负责人→视角员工）；
+  // startDate/dueDate 为 yyyy-mm-dd；progress 为 0–100 百分比。
   createTask: (input: {
     viewId: string
     title: string
@@ -76,6 +84,11 @@ export const api = {
     status?: string
     priority?: string
     tags?: string[]
+    parentId?: string
+    employeeId?: string
+    startDate?: string
+    dueDate?: string
+    progress?: number
   }): Promise<DevTaskState> => post<DevTaskState>('/tasks', input),
 
   updateTask: (id: string, patch: TaskPatch): Promise<DevTaskState> =>
@@ -86,6 +99,27 @@ export const api = {
 
   moveTask: (id: string, status: string): Promise<DevTaskState> =>
     post<DevTaskState>('/tasks/move', { id, status }),
+
+  // Task logs: `subjectTitle` is a client-side snapshot used to label
+  // materialised record-history entries; empty means "subject already
+  // deleted" and is simply omitted. GET pulls local + materialised entries
+  // once; the three writes return refreshed local entries only (history is
+  // session-stable on the panel side).
+  taskLogs: (subjectId: string, subjectKind: LogSubjectKind, subjectTitle?: string, localOnly = false): Promise<TaskLogResponse> => {
+    const params = new URLSearchParams({ subjectId, subjectKind })
+    if (subjectTitle !== undefined && subjectTitle !== '') params.set('subjectTitle', subjectTitle)
+    if (localOnly) params.set('localOnly', '1')
+    return request<TaskLogResponse>(`/logs?${params.toString()}`)
+  },
+
+  createTaskLog: (input: CreateTaskLogRequest): Promise<TaskLogResponse> =>
+    post<TaskLogResponse>('/logs', input),
+
+  updateTaskLog: (input: UpdateTaskLogRequest): Promise<TaskLogResponse> =>
+    post<TaskLogResponse>('/logs/update', input),
+
+  removeTaskLog: (input: RemoveTaskLogRequest): Promise<TaskLogResponse> =>
+    post<TaskLogResponse>('/logs/remove', input),
 
   // Agent roster (registry-backed, no Bitable). New agents land at
   // `provisioning`; status is moved through the lifecycle via updateAgent.

@@ -25,6 +25,9 @@ import { GanttView } from './GanttView.tsx'
 import { ActivityView } from './ActivityView.tsx'
 import { AgentView } from './AgentView.tsx'
 import { TaskEditDialog } from './TaskEditDialog.tsx'
+import { SubtaskCreateDialog } from './SubtaskCreateDialog.tsx'
+import { TaskLogPanel } from './TaskLogPanel.tsx'
+import type { TaskLogFeed, TaskLogSubject } from './TaskLogPanel.tsx'
 import { ViewCreateForm } from './ViewCreateForm.tsx'
 import { loadCachedState, saveCachedState } from './state-cache.ts'
 import type { DevTaskState, TaskRecord, TaskStatus, TaskView } from '../protocol.ts'
@@ -138,25 +141,142 @@ export function DevTaskPanel({ t, sidebarRight }: DevTaskPanelProps) {
   const [creatingView, setCreatingView] = useState(false)
   const [creatingTask, setCreatingTask] = useState(false)
   const [editingTask, setEditingTask] = useState<TaskRecord | null>(null)
+  /** 「添加子任务」弹窗的目标父任务（项目视图「＋」按钮设置；null = 关闭）。 */
+  const [subtaskParent, setSubtaskParent] = useState<TaskRecord | null>(null)
+  /**
+   * 项目视图中需要展开的条目 id 集（新建子任务后的祖先链）。OkrProjectView
+   * 的行组件各自维护折叠状态，创建成功后把新条目的祖先链写进来：命中即
+   * setOpen(true)，保证新子任务落在可视区；否则父行收着，用户以为没创建。
+   */
+  const [expandIds, setExpandIds] = useState<ReadonlySet<string>>(new Set())
   const [dropTarget, setDropTarget] = useState<TaskStatus | null>(null)
   /** 后台刷新进行中（快照已在屏幕上时显示刷新指示）。 */
   const [refreshing, setRefreshing] = useState(false)
+  /** 任务日志板块当前主体（null = 关闭）。再次点击同一条目即 toggle 关闭。 */
+  const [selectedSubject, setSelectedSubject] = useState<TaskLogSubject | null>(null)
+
+  /**
+   * 日志 feed 会话缓存（key: `${kind}:${id}`）：hover 预取与面板回写写入，
+   * 同主体再次打开通过 initialFeed 零请求秒开（任务看板详情级体验）。
+   */
+  const logFeedCacheRef = useRef(new Map<string, TaskLogFeed>())
+  /** hover 预取防抖定时器（全局单 timer：鼠标同一时刻只悬停一个条目）。 */
+  const hoverTimerRef = useRef<number | null>(null)
+
+  const feedKey = useCallback((subject: TaskLogSubject): string => `${subject.kind}:${subject.id}`, [])
+
+  /** 已有缓存（或预取已写入）的主体直接返回，避免重复请求。 */
+  const prefetchSubjectLog = useCallback((subject: TaskLogSubject): void => {
+    const key = feedKey(subject)
+    if (logFeedCacheRef.current.has(key)) return
+    api.taskLogs(subject.id, subject.kind, subject.title, false)
+      .then(feed => {
+        logFeedCacheRef.current.set(key, {
+          entries: feed.entries,
+          history: feed.history,
+          historyError: feed.historyError ?? null,
+        })
+      })
+      .catch(() => {}) // 预取失败静默：点击时面板正式拉取并显示错误
+  }, [feedKey])
+
+  /**
+   * 悬停日志主体：300ms 防抖后预取（扫过列表时不会连环触发 lark-cli）。
+   * host 端单飞 + TTL 缓存保证预取与随后的点击合并为一次真实拉取。
+   */
+  const hoverSubjectLog = useCallback((subject: TaskLogSubject): void => {
+    if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current)
+    hoverTimerRef.current = window.setTimeout(() => {
+      hoverTimerRef.current = null
+      prefetchSubjectLog(subject)
+    }, 300)
+  }, [prefetchSubjectLog])
+
+  /** 悬停离开：取消尚未触发的预取（已经发起的不打断）。 */
+  const hoverEnd = useCallback((): void => {
+    if (hoverTimerRef.current !== null) {
+      window.clearTimeout(hoverTimerRef.current)
+      hoverTimerRef.current = null
+    }
+  }, [])
+
+  // 卸载清理预取定时器。
+  useEffect(() => () => hoverEnd(), [hoverEnd])
+
+  /** 任务/子任务 → 日志主体引用（kind 按 parentId 归类，同 openTaskLog）。 */
+  const taskSubject = useCallback((task: TaskRecord): TaskLogSubject => ({
+    kind: task.parentId === null ? 'task' : 'subtask',
+    id: task.id,
+    title: task.title,
+  }), [])
+
+  /** 悬停任务/子任务条目：预取其日志 feed。 */
+  const hoverTaskLog = useCallback((task: TaskRecord): void => {
+    hoverSubjectLog(taskSubject(task))
+  }, [hoverSubjectLog, taskSubject])
+
+  /**
+   * 面板 feed 回写会话缓存。useCallback 保持引用稳定（TaskLogPanel 的
+   * 加载 effect 依赖它，内联函数会导致 DevTaskPanel 每次重渲染都重拉）。
+   */
+  const handleFeed = useCallback((feed: TaskLogFeed): void => {
+    if (selectedSubject === null) return
+    logFeedCacheRef.current.set(feedKey(selectedSubject), feed)
+  }, [selectedSubject, feedKey])
+
+  /**
+   * 打开/关闭任务日志板块（任务与子任务入口）：kind 按 parentId 归类——
+   * parentId 为空是任务层，非空是模块子任务层。同一主体再点一次则关闭。
+   */
+  const openTaskLog = useCallback((task: TaskRecord) => {
+    setSelectedSubject(prev => prev !== null && prev.id === task.id
+      ? null
+      : { kind: task.parentId === null ? 'task' : 'subtask', id: task.id, title: task.title })
+  }, [])
+
+  /** 打开/关闭任务日志板块（O/KR 入口：视图层已构造好主体引用）。 */
+  const openSubjectLog = useCallback((subject: TaskLogSubject) => {
+    setSelectedSubject(prev => prev !== null && prev.id === subject.id ? null : subject)
+  }, [])
+
+  /**
+   * 当前日志主体是否已从 state 全集消失（design/06 §11：删除后面板保留，
+   * 显示「已删除」徽章而非自动关闭——本地删除日志仍需可见）。被周期/视角
+   * 过滤掉不在此列（那是 UI 过滤，state 里还在）。
+   */
+  const subjectDeleted = useMemo(() => {
+    if (state === null || selectedSubject === null) return false
+    if (selectedSubject.kind === 'objective') return !state.objectives.some(o => o.id === selectedSubject.id)
+    if (selectedSubject.kind === 'kr') return !state.keyResults.some(k => k.id === selectedSubject.id)
+    return !state.tasks.some(task => task.id === selectedSubject.id)
+  }, [state, selectedSubject])
 
   const activeView = useMemo(() => {
     if (state === null) return null
     return state.views.find(view => view.id === state.activeViewId) ?? state.views[0] ?? null
   }, [state])
 
-  const activeTasks = useMemo(
-    () => state === null || activeView === null
-      ? []
-      : state.tasks.filter(task =>
-          activeView.scope === 'team'
-            ? true
-            : task.employeeId === activeView.employeeId,
-        ),
-    [state, activeView],
-  )
+  // 团体视角看全部；个人视角看本人的任务 + 其可见祖先链（父任务/项目归
+  // 本人即展示其下子任务，孙任务同理——子任务负责人可能是他人）。
+  const activeTasks = useMemo(() => {
+    if (state === null || activeView === null) return []
+    if (activeView.scope === 'team') return state.tasks
+    const byId = new Map(state.tasks.map(task => [task.id, task]))
+    const own = new Set(
+      state.tasks
+        .filter(task => task.employeeId === activeView.employeeId)
+        .map(task => task.id),
+    )
+    return state.tasks.filter(task => {
+      // 沿父记录 2 向上找：任意一级祖先是本人可见的，该条目即可见。
+      let cursor: TaskRecord | undefined = task
+      while (cursor !== undefined) {
+        if (own.has(cursor.id)) return true
+        cursor = cursor.parentId === null ? undefined : byId.get(cursor.parentId)
+      }
+      return false
+    })
+  }, [state, activeView])
 
   // 布局初始来源：快照里当时激活的视图 tab（无快照时先按默认，host state
   // 首次落地后由下方 effect 按真实 activeViewId 纠正）。惰性初始化，不用
@@ -551,8 +671,10 @@ export function DevTaskPanel({ t, sidebarRight }: DevTaskPanelProps) {
                               task={task}
                               t={t}
                               employees={state!.employees}
+                              onHover={() => hoverTaskLog(task)}
+                              onHoverEnd={hoverEnd}
                               // eslint-disable-next-line react/jsx-no-bind
-                              onClick={() => setEditingTask(task)}
+                              onClick={() => openTaskLog(task)}
                             />
                             {tasks.filter(sub => sub.parentId === task.id).map(sub => (
                               <div key={sub.id} className="dtk-subtask">
@@ -560,8 +682,10 @@ export function DevTaskPanel({ t, sidebarRight }: DevTaskPanelProps) {
                                   task={sub}
                                   t={t}
                                   employees={state!.employees}
+                                  onHover={() => hoverTaskLog(sub)}
+                                  onHoverEnd={hoverEnd}
                                   // eslint-disable-next-line react/jsx-no-bind
-                                  onClick={() => setEditingTask(sub)}
+                                  onClick={() => openTaskLog(sub)}
                                 />
                               </div>
                             ))}
@@ -572,8 +696,10 @@ export function DevTaskPanel({ t, sidebarRight }: DevTaskPanelProps) {
                               task={task}
                               t={t}
                               employees={state!.employees}
+                              onHover={() => hoverTaskLog(task)}
+                              onHoverEnd={hoverEnd}
                               // eslint-disable-next-line react/jsx-no-bind
-                              onClick={() => setEditingTask(task)}
+                              onClick={() => openTaskLog(task)}
                             />
                           </div>
                         ))]
@@ -592,12 +718,13 @@ export function DevTaskPanel({ t, sidebarRight }: DevTaskPanelProps) {
               keyResults={state!.keyResults}
               t={t}
               employees={state!.employees}
-              onEditTask={setEditingTask}
-              // eslint-disable-next-line react/jsx-no-bind
-              onOpenDelivery={task => sidebarRight.openTab('devdelivery', {
-                // Delivery is a concrete KR task, never its O/KR planning node.
-                params: { project: { id: task.id, name: task.title } },
-              })}
+              onOpenTaskLog={openTaskLog}
+              onOpenSubjectLog={openSubjectLog}
+              onHoverTaskLog={hoverTaskLog}
+              onHoverSubjectLog={hoverSubjectLog}
+              onHoverEnd={hoverEnd}
+              onCreateSubtask={setSubtaskParent}
+              expandIds={expandIds}
             />
           )}
 
@@ -606,7 +733,9 @@ export function DevTaskPanel({ t, sidebarRight }: DevTaskPanelProps) {
               tasks={filteredTasks}
               t={t}
               employees={state!.employees}
-              onEditTask={setEditingTask}
+              onOpenTaskLog={openTaskLog}
+              onHoverTaskLog={hoverTaskLog}
+              onHoverEnd={hoverEnd}
             />
           )}
 
@@ -616,7 +745,9 @@ export function DevTaskPanel({ t, sidebarRight }: DevTaskPanelProps) {
             <ActivityView
               tasks={activeTasks}
               t={t}
-              onEditTask={setEditingTask}
+              onOpenTaskLog={openTaskLog}
+              onHoverTaskLog={hoverTaskLog}
+              onHoverEnd={hoverEnd}
             />
           )}
 
@@ -630,6 +761,43 @@ export function DevTaskPanel({ t, sidebarRight }: DevTaskPanelProps) {
             />
           )}
           </div>
+
+          {/* 任务日志板块：占界面下半部分（design/06 §3），.dtk-scroll 的
+              兄弟节点；key 按主体 id 重挂载，草稿等内部状态卸载即弃。 */}
+          {selectedSubject !== null && (
+            <TaskLogPanel
+              key={selectedSubject.id}
+              subject={selectedSubject}
+              deleted={subjectDeleted}
+              employees={state?.employees ?? []}
+              defaultAuthorId={activeView?.employeeId ?? null}
+              t={t}
+              initialFeed={logFeedCacheRef.current.get(feedKey(selectedSubject)) ?? null}
+              onFeed={handleFeed}
+              // eslint-disable-next-line react/jsx-no-bind
+              onEdit={subject => {
+                const task = state?.tasks.find(item => item.id === subject.id)
+                if (task !== undefined) setEditingTask(task)
+              }}
+              // eslint-disable-next-line react/jsx-no-bind
+              onDelivery={subject => {
+                const task = state?.tasks.find(item => item.id === subject.id)
+                if (task !== undefined) {
+                  // Delivery is a concrete KR task, never its O/KR planning node.
+                  void sidebarRight.openTab('devdelivery', {
+                    params: { project: { id: task.id, name: task.title } },
+                  })
+                }
+              }}
+              // eslint-disable-next-line react/jsx-no-bind
+              onOpenDoc={(projectId, document) => {
+                void sidebarRight.openTab('devreviewer', {
+                  params: { projectId, document },
+                })
+              }}
+              onClose={() => setSelectedSubject(null)}
+            />
+          )}
         </Fragment>
       )}
 
@@ -673,6 +841,51 @@ export function DevTaskPanel({ t, sidebarRight }: DevTaskPanelProps) {
             if (!window.confirm(t('task.removeConfirm'))) return
             setEditingTask(null)
             await run(() => api.removeTask(target.id))
+          }}
+        />
+      )}
+
+      {/* 添加子任务（项目视图「＋」按钮）：host 解析父任务并继承 KR 归属，
+          成功后按新旧差集定位新条目，展开其全部祖先链使其落在可视区。 */}
+      {subtaskParent !== null && activeView !== null && (
+        <SubtaskCreateDialog
+          t={t}
+          parent={subtaskParent}
+          employees={state?.employees ?? []}
+          onCancel={() => setSubtaskParent(null)}
+          // eslint-disable-next-line react/jsx-no-bind
+          onSubmit={async input => {
+            const parent = subtaskParent
+            setSubtaskParent(null)
+            const prevIds = new Set((state?.tasks ?? []).map(task => task.id))
+            try {
+              const next = await api.createTask({
+                viewId: activeView.id,
+                parentId: parent.id,
+                title: input.title,
+                description: input.description,
+                status: input.status,
+                employeeId: input.employeeId,
+                startDate: input.startDate,
+                dueDate: input.dueDate,
+                progress: input.progress,
+              })
+              applyState(next)
+              setError(null)
+              const fresh = next.tasks.find(task => !prevIds.has(task.id)) ?? null
+              if (fresh !== null) {
+                const byId = new Map(next.tasks.map(task => [task.id, task]))
+                const chain = new Set<string>()
+                let cursor: TaskRecord | undefined = fresh
+                while (cursor !== undefined) {
+                  chain.add(cursor.id)
+                  cursor = cursor.parentId === null ? undefined : byId.get(cursor.parentId)
+                }
+                setExpandIds(chain)
+              }
+            } catch (caught) {
+              setError(caught instanceof Error ? caught.message : String(caught))
+            }
           }}
         />
       )}

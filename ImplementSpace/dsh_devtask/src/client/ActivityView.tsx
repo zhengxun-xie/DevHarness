@@ -14,7 +14,7 @@
  *   - 按本地日期分组（今天 / 昨天 / 日期），组内按时间倒序
  *   - 每个日期分组可折叠（点组头），折叠后只留组头与当天条数
  *   - 单字段变更渲染为「将 X 从 A 改为 B」；多字段变更列出全部 diff
- *   - 任务标题可点（任务仍在当前视图时打开编辑弹窗，已删除则纯文本）
+ *   - 任务标题可点（任务仍在当前视图时打开任务日志板块，已删除则纯文本）
  *   - 「加载更多」以 +50 累加 limit；「刷新」带 fresh=1 绕过宿主缓存
  */
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
@@ -27,8 +27,12 @@ export interface ActivityViewProps {
   /** 归属过滤后的任务（individual 视角只显示其任务的事件）。 */
   tasks: TaskRecord[]
   t: TranslateNS<'devTaskLeft'>
-  /** 点击任务标题时打开编辑对话框。 */
-  onEditTask(task: TaskRecord): void
+  /** 点击任务标题时打开任务日志板块。 */
+  onOpenTaskLog(task: TaskRecord): void
+  /** 悬停任务标题：预取其日志 feed（DevTaskPanel 防抖 300ms）。 */
+  onHoverTaskLog(task: TaskRecord): void
+  /** 悬停离开：取消尚未触发的预取。 */
+  onHoverEnd(): void
 }
 
 /** 每次「加载更多」的增量。 */
@@ -107,13 +111,15 @@ function groupByDay(events: ActivityEvent[], t: TranslateNS<'devTaskLeft'>): Day
 
 /** 单条事件（memo：时间线重渲染时未变事件不重绘）。 */
 const ActivityEventRow = memo(function ActivityEventRow({
-  event, task, t, onEditTask,
+  event, task, t, onOpenTaskLog, onHoverTaskLog, onHoverEnd,
 }: {
   event: ActivityEvent
   /** 事件对应任务仍在当前视图时为该任务，否则 null（已删除/被过滤）。 */
   task: TaskRecord | null
   t: TranslateNS<'devTaskLeft'>
-  onEditTask(task: TaskRecord): void
+  onOpenTaskLog(task: TaskRecord): void
+  onHoverTaskLog(task: TaskRecord): void
+  onHoverEnd(): void
 }) {
   const title = event.taskTitle
   const openable = task !== null
@@ -144,8 +150,10 @@ const ActivityEventRow = memo(function ActivityEventRow({
               <button
                 type="button"
                 className="dtk-activity-task"
+                onPointerEnter={() => onHoverTaskLog(task)}
+                onPointerLeave={onHoverEnd}
                 // eslint-disable-next-line react/jsx-no-bind
-                onClick={() => onEditTask(task)}
+                onClick={() => onOpenTaskLog(task)}
               >
                 《{title}》
               </button>
@@ -173,7 +181,7 @@ const ActivityEventRow = memo(function ActivityEventRow({
 })
 
 /** 活动事件视图。 */
-export function ActivityView({ tasks, t, onEditTask }: ActivityViewProps) {
+export function ActivityView({ tasks, t, onOpenTaskLog, onHoverTaskLog, onHoverEnd }: ActivityViewProps) {
   // 秒开：有本地快照就先渲染它（非空数组即无 spinner），后台刷新落地后替换；
   // 完全没有缓存时才走 loading 态。
   const [events, setEvents] = useState<ActivityEvent[]>(() => loadCachedActivity() ?? [])
@@ -308,7 +316,9 @@ export function ActivityView({ tasks, t, onEditTask }: ActivityViewProps) {
                     event={event}
                     task={taskById.get(event.recordId) ?? null}
                     t={t}
-                    onEditTask={onEditTask}
+                    onOpenTaskLog={onOpenTaskLog}
+                    onHoverTaskLog={onHoverTaskLog}
+                    onHoverEnd={onHoverEnd}
                   />
                 ))}
               </ul>

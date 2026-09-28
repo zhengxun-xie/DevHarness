@@ -14,15 +14,19 @@ import type { IncomingMessage, ServerResponse, OutgoingHttpHeaders } from 'node:
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import {
   DEVTASK_API_PREFIX,
+  isLogSubjectKind,
   type CreateAgentRequest,
+  type CreateTaskLogRequest,
   type CreateTaskRequest,
   type CreateViewRequest,
   type MoveTaskRequest,
   type RemoveAgentRequest,
+  type RemoveTaskLogRequest,
   type RemoveTaskRequest,
   type RemoveViewRequest,
   type SelectViewRequest,
   type UpdateAgentRequest,
+  type UpdateTaskLogRequest,
   type UpdateTaskRequest,
 } from '../protocol.ts'
 import type { DevTaskStore } from './store.ts'
@@ -128,8 +132,10 @@ export function devtaskRoutes(store: DevTaskStore): WebRoute[] {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         // Name/enum validation failures are the caller's fault; anything else
-        // (lock contention, disk) is a server-side failure.
-        const clientFault = /required|unknown|not found|cannot be removed|must be|already exists/.test(message)
+        // (lock contention, disk) is a server-side failure. Log endpoints add
+        // `sha mismatch` (optimistic-lock conflict) and `cannot be modified`
+        // (system-entry edits) to the 400 family.
+        const clientFault = /required|unknown|not found|cannot be removed|cannot be modified|must be|already exists|sha mismatch/.test(message)
         sendError(res, clientFault ? 400 : 500, message)
       }
     },
@@ -185,6 +191,13 @@ export function devtaskRoutes(store: DevTaskStore): WebRoute[] {
         status: typeof body['status'] === 'string' ? body['status'] : undefined,
         priority: typeof body['priority'] === 'string' ? body['priority'] : undefined,
         tags: Array.isArray(body['tags']) ? body['tags'] as string[] : undefined,
+        parentId: typeof body['parentId'] === 'string' && body['parentId'] !== '' ? body['parentId'] : undefined,
+        employeeId: typeof body['employeeId'] === 'string' ? body['employeeId'] : undefined,
+        startDate: typeof body['startDate'] === 'string' && body['startDate'] !== '' ? body['startDate'] : undefined,
+        dueDate: typeof body['dueDate'] === 'string' && body['dueDate'] !== '' ? body['dueDate'] : undefined,
+        progress: typeof body['progress'] === 'number' && Number.isFinite(body['progress'])
+          ? body['progress']
+          : undefined,
       }
       sendJson(res, 200, await store.createTask(request))
     }),
@@ -214,6 +227,66 @@ export function devtaskRoutes(store: DevTaskStore): WebRoute[] {
         status: requireString(body, 'status'),
       }
       sendJson(res, 200, await store.moveTask(request))
+    }),
+
+    // 任务日志（06 §9）：GET 读时间线（本地条目 + record-history 物化），
+    // 三个 POST 只动本地条目。GET query 解析沿 activity 端点先例自己做。
+    route('GET', `${DEVTASK_API_PREFIX}/logs`, async (req, res) => {
+      const url = new URL(req.url ?? '', 'http://localhost')
+      const subjectId = url.searchParams.get('subjectId')
+      const subjectKind = url.searchParams.get('subjectKind')
+      if (subjectId === null || subjectId === '') throw new Error('subjectId is required')
+      if (subjectKind === null || !isLogSubjectKind(subjectKind)) throw new Error('unknown subject kind')
+      const subjectTitle = url.searchParams.get('subjectTitle') ?? undefined
+      const localOnly = url.searchParams.get('localOnly') === '1'
+      sendJson(res, 200, await store.taskLogs({
+        subjectId,
+        subjectKind,
+        ...(subjectTitle !== undefined && subjectTitle !== '' ? { subjectTitle } : {}),
+        ...(localOnly ? { localOnly: true } : {}),
+      }))
+    }),
+
+    route('POST', `${DEVTASK_API_PREFIX}/logs`, async (req, res) => {
+      const body = await readBody(req)
+      const author = body['author']
+      if (author === null || author === undefined || typeof author !== 'object' || Array.isArray(author)) {
+        throw new Error('author is required')
+      }
+      const a = author as Record<string, unknown>
+      const subjectKind = body['subjectKind']
+      if (typeof subjectKind !== 'string' || !isLogSubjectKind(subjectKind)) throw new Error('unknown subject kind')
+      const request: CreateTaskLogRequest = {
+        subjectId: requireString(body, 'subjectId'),
+        subjectKind,
+        subjectTitle: requireString(body, 'subjectTitle'),
+        body: requireString(body, 'body'),
+        author: {
+          type: a['type'] === 'system' ? 'system' : 'user',
+          id: typeof a['id'] === 'string' ? a['id'] : '',
+          displayName: typeof a['displayName'] === 'string' ? a['displayName'] : '',
+        },
+      }
+      sendJson(res, 200, await store.createTaskLog(request))
+    }),
+
+    route('POST', `${DEVTASK_API_PREFIX}/logs/update`, async (req, res) => {
+      const body = await readBody(req)
+      const request: UpdateTaskLogRequest = {
+        id: requireString(body, 'id'),
+        body: requireString(body, 'body'),
+        sha: requireString(body, 'sha'),
+      }
+      sendJson(res, 200, await store.updateTaskLog(request))
+    }),
+
+    route('POST', `${DEVTASK_API_PREFIX}/logs/remove`, async (req, res) => {
+      const body = await readBody(req)
+      const request: RemoveTaskLogRequest = {
+        id: requireString(body, 'id'),
+        sha: requireString(body, 'sha'),
+      }
+      sendJson(res, 200, await store.removeTaskLog(request))
     }),
 
     route('POST', `${DEVTASK_API_PREFIX}/agents`, async (req, res) => {

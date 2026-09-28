@@ -16,23 +16,30 @@ import type {
   ActivityFeed,
   AgentRecord,
   CreateAgentRequest,
+  CreateTaskLogRequest,
   CreateTaskRequest,
   CreateViewRequest,
   DevTaskRegistry,
   DevTaskState,
+  RemoveTaskLogRequest,
   SelectViewRequest,
+  TaskLogQuery,
+  TaskLogResponse,
   TaskPatch,
   TaskRecord,
   TaskView,
+  UpdateTaskLogRequest,
   ViewScope,
 } from '../protocol.ts'
 import {
   REGISTRY_VERSION,
   isAgentStatus,
+  isLogSubjectKind,
   isTaskStatus,
 } from '../protocol.ts'
 import { readJson, withLockedJson } from './json-store.ts'
 import { dshHome } from './dsh-home.ts'
+import { TaskLogStore } from './log-store.ts'
 import * as bitable from './bitable-client.ts'
 
 /** The view name seeded on a fresh registry. */
@@ -71,9 +78,11 @@ function cleanName(value: unknown, max = 120): string {
 /** Host-side DevTask facade over the Bitable source + local view registry. */
 export class DevTaskStore {
   private readonly registryPath: string
+  private readonly logStore: TaskLogStore
 
   constructor(dshHomeDir: string = dshHome()) {
     this.registryPath = resolve(dshHomeDir, 'devtask', 'registry.json')
+    this.logStore = new TaskLogStore(dshHomeDir)
   }
 
   private loadRegistry(): DevTaskRegistry {
@@ -229,6 +238,12 @@ export class DevTaskStore {
    * Create a task in Bitable. When the active view is an INDIVIDUAL perspective,
    * its bound employee becomes the task's「负责人」; on the team view the task
    * is created unassigned (the user can assign it later via the edit dialog).
+   *
+   * 子任务模式（request.parentId 非空，项目视图「＋ 添加子任务」）：拉取
+   * 父任务，继承其 KR 归属（子任务必须与父任务同 KR，否则掉进「未关联 KR
+   * 的任务」孤儿区）；负责人取显式 employeeId，否则继承父任务负责人，
+   * 再否则视角绑定员工。父任务无 KR 时不写 KR 链接（子任务随父进孤儿区，
+   * 与父任务同一处展示，不分离）。顶层模式行为不变。
    */
   async createTask(request: CreateTaskRequest): Promise<DevTaskState> {
     const title = cleanName(request.title)
@@ -236,21 +251,50 @@ export class DevTaskStore {
     const status = isTaskStatus(request.status) ? request.status : 'todo'
 
     // Resolve the view to get the employeeId for the 负责人 field.
-    let employeeId: string | null = null
+    let viewEmployeeId: string | null = null
     const registry = this.normalize(this.loadRegistry())
     if (request.viewId !== '') {
       const view = registry.views.find(v => v.id === request.viewId)
       if (view === undefined) throw new Error('view not found')
       if (view.scope === 'individual' && view.employeeId !== null) {
-        employeeId = view.employeeId
+        viewEmployeeId = view.employeeId
       }
     }
+
+    // 子任务模式：先取父任务（快照在并发更新下仍以创建时点为准），继承
+    // KR 归属与负责人。父任务读取失败即 400——半途继承（写了父链接但没
+    // KR）会造出孤儿子任务，宁可整体失败让用户重试。
+    let parentId: string | null = null
+    let krId: string | null = null
+    let parentEmployeeId: string | null = null
+    if (request.parentId !== undefined && request.parentId !== null && request.parentId !== '') {
+      parentId = request.parentId
+      const { tasks } = await bitable.listTasks()
+      const parent = tasks.find(t => t.id === parentId)
+      if (parent === undefined) throw new Error('parent task not found')
+      krId = parent.krId
+      parentEmployeeId = parent.employeeId
+    }
+    // 负责人优先级：显式 employeeId（'' = 明确不指派）> 父任务负责人 > 视角绑定员工。
+    const employeeId = request.employeeId !== undefined
+      ? (request.employeeId === '' ? null : request.employeeId)
+      : (parentEmployeeId ?? viewEmployeeId)
+
+    // 任务进度：客户端 0–100 百分比 → Bitable 0–1 量纲（表内存量即 0.59 形态）。
+    const progress = request.progress === undefined || !Number.isFinite(request.progress)
+      ? undefined
+      : Math.min(100, Math.max(0, request.progress)) / 100
 
     await bitable.createTask({
       title,
       description: request.description,
       status,
       employeeId,
+      parentId,
+      krId,
+      startDate: request.startDate,
+      dueDate: request.dueDate,
+      progress,
     })
     bitable.invalidateActivityCache()
 
@@ -277,11 +321,99 @@ export class DevTaskStore {
     return this.state()
   }
 
-  /** Delete a task from Bitable. */
+  /**
+   * Delete a task from Bitable.
+   *
+   * 06 §7 单一来源原则：删除是 record-history 的盲区（已删记录查不到），
+   * 因此 removeTask 是**唯一**本地 system 日志写入点——先抓标题/层级快照，
+   * 删除成功后落一条本地日志。日志是旁路数据：写入失败仅 stderr 告警，
+   * 绝不阻塞任务删除本身。
+   */
   async removeTask(request: { id: string }): Promise<DevTaskState> {
+    let snapshot: { title: string; kind: 'task' | 'subtask' } | null = null
+    try {
+      const { tasks } = await bitable.listTasks()
+      const target = tasks.find(t => t.id === request.id)
+      if (target !== undefined) {
+        snapshot = { title: target.title, kind: target.parentId === null ? 'task' : 'subtask' }
+      }
+    } catch {
+      // 快照失败不拦删除——subjectTitle 缺失只影响日志展示
+    }
+
     await bitable.deleteTask(request.id)
     bitable.invalidateActivityCache()
+
+    if (snapshot !== null) {
+      try {
+        this.logStore.create({
+          subjectId: request.id,
+          subjectKind: snapshot.kind,
+          subjectTitle: snapshot.title,
+          kind: 'system',
+          author: { type: 'system', id: 'devtask', displayName: '系统' },
+          body: `删除${snapshot.kind === 'subtask' ? '子任务' : '任务'}「${snapshot.title}」`,
+        })
+      } catch (error) {
+        console.error('[devtask] 删除事件日志写入失败:', error)
+      }
+    }
     return this.state()
+  }
+
+  // -------------------------------------------------------------------------
+  // Task logs（06：本地 md 存储 + record-history 物化合并）。
+  // -------------------------------------------------------------------------
+
+  /**
+   * Read one subject's log timeline: persisted local entries plus the
+   * record-history materialised system entries. The history fetch failing is
+   * NOT fatal — the response carries `historyError` and the timeline simply
+   * shows the local part with a banner.
+   */
+  async taskLogs(query: TaskLogQuery): Promise<TaskLogResponse> {
+    if (!isLogSubjectKind(query.subjectKind)) throw new Error('unknown subject kind')
+    const entries = this.logStore.list(query.subjectId)
+    // Two-phase loading (06 §7): localOnly skips the lark-cli record-history
+    // fetch so the client can render local entries instantly; a second
+    // request without this flag pulls history in the background.
+    if (query.localOnly === true) return { entries, history: [] }
+    const { entries: history, error } = await bitable.listSubjectHistory(
+      query.subjectId,
+      query.subjectKind,
+      query.subjectTitle ?? '',
+    )
+    return { entries, history, ...(error === undefined ? {} : { historyError: error }) }
+  }
+
+  /** Create a manual log entry; returns the subject's persisted entries. */
+  async createTaskLog(request: CreateTaskLogRequest): Promise<TaskLogResponse> {
+    if (!isLogSubjectKind(request.subjectKind)) throw new Error('unknown subject kind')
+    // Host forces `manual`: system entries are host-generated only, the
+    // client never gets to forge one.
+    this.logStore.create({ ...request, kind: 'manual' })
+    return { entries: this.logStore.list(request.subjectId), history: [] }
+  }
+
+  /**
+   * Edit one manual entry (sha256 optimistic lock). System entries are fact
+   * records and are rejected outright.
+   */
+  async updateTaskLog(request: UpdateTaskLogRequest): Promise<TaskLogResponse> {
+    const existing = this.logStore.find(request.id)
+    if (existing === null) throw new Error(`log not found: ${request.id}`)
+    if (existing.kind === 'system') throw new Error('system log cannot be modified')
+    const updated = this.logStore.update(request.id, request.body, request.sha)
+    return { entries: this.logStore.list(updated.subjectId), history: [] }
+  }
+
+  /** Remove one manual entry (sha256 optimistic lock); system rejected. */
+  async removeTaskLog(request: RemoveTaskLogRequest): Promise<TaskLogResponse> {
+    const existing = this.logStore.find(request.id)
+    if (existing === null) throw new Error(`log not found: ${request.id}`)
+    if (existing.kind === 'system') throw new Error('system log cannot be modified')
+    const removed = this.logStore.remove(request.id, request.sha)
+    return { entries: this.logStore.list(removed.subjectId), history: [] }
   }
 
   // -------------------------------------------------------------------------

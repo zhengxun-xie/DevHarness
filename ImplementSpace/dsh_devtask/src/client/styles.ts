@@ -353,13 +353,17 @@ html[data-devtask-active] [class*="centerCol"] > :not([data-devtask-view]) { vis
 .dtk-okr-row { display: flex; align-items: center; gap: 8px; padding: 7px 12px; }
 .dtk-okr-objrow { padding: 10px 12px; }
 .dtk-okr-krrow { padding-left: 24px; }
-.dtk-okr-taskrow { padding-left: 48px; }
+.dtk-okr-taskrow { padding-left: 48px; position: relative; }
+/* 有子任务的任务行：整行可点击展开/收起 */
+.dtk-okr-taskrow[data-expandable="true"] { cursor: pointer; }
 .dtk-okr-row:hover { background: var(--dsw-alias-border-l3, rgba(0,0,0,0.04)); }
 .dtk-okr-toggle {
   appearance: none; border: 0; background: transparent; color: inherit;
   padding: 0; cursor: pointer; line-height: 1; display: flex; align-items: center;
 }
 .dtk-okr-caret { font-size: 10px; opacity: .6; width: 12px; text-align: center; }
+/* 无子任务的任务行用等宽占位，保证标题列对齐 */
+.dtk-okr-caret-spacer { width: 12px; flex: none; }
 .dtk-okr-row-title {
   appearance: none; border: 0; background: transparent; color: inherit;
   font: inherit; text-align: left; cursor: pointer; padding: 0; min-width: 0;
@@ -393,12 +397,22 @@ html[data-devtask-active] [class*="centerCol"] > :not([data-devtask-view]) { vis
 .dtk-okr-progress-text { font-size: 11px; opacity: .65; width: 32px; text-align: right; font-variant-numeric: tabular-nums; }
 .dtk-okr-children { list-style: none; margin: 0; padding: 0 0 4px 0; }
 .dtk-okr-task { display: block; }
-.dtk-okr-subtask {
-  display: flex; align-items: center; gap: 8px;
-  padding: 4px 12px 4px 72px; font-size: 12px; opacity: .92;
-}
+/* 模块子任务行（TaskRow depth ≥ 1）：缩进由行内 paddingLeft 按深度递增
+   （基准 96px，每深一级 +20px），这里只管密度与字号。 */
+.dtk-okr-subtask { padding: 4px 12px; font-size: 12px; opacity: .92; }
 .dtk-okr-subtask:hover { background: var(--dsw-alias-border-l3, rgba(0,0,0,0.04)); }
 .dtk-okr-subtask .dtk-okr-row-title { font-size: 12px; }
+/* 任务/子任务「＋ 添加子任务」：绝对定位钉在树最左列，与 O 行折叠箭头
+   （▸，.dtk-okr-objrow 内容起点 12px、字形中心 ≈18px）对齐——任务行与
+   各级子任务行共用同一坐标系（各级容器无左内边距），全部 ＋ 因此排成
+   一列；脱离文档流，不挤占行内折叠箭头/标题的位置 */
+.dtk-okr-add {
+  appearance: none; border: 0; background: transparent; color: inherit;
+  position: absolute; left: 5px; top: 50%; transform: translateY(-50%);
+  padding: 0 6px; cursor: pointer;
+  font-size: 14px; font-weight: 600; line-height: 1; opacity: .45; border-radius: 6px;
+}
+.dtk-okr-add:hover { opacity: 1; background: var(--dsw-alias-border-l3, rgba(0,0,0,0.08)); }
 .dtk-okr-empty { font-size: 12px; opacity: .45; padding: 6px 12px 6px 48px; list-style: none; }
 
 .dtk-board {
@@ -489,6 +503,9 @@ html[data-devtask-active] [class*="centerCol"] > :not([data-devtask-view]) { vis
 }
 .dtk-dialog-title { margin: 0 0 12px; font-size: 15px; font-weight: 650; }
 .dtk-dialog-sub { margin: -8px 0 12px; font-size: 12px; opacity: .6; }
+.dtk-dialog-sub-strong { font-weight: 650; opacity: .85; }
+/* 弹窗内双列字段栅格（添加子任务：状态/负责人/日期/进度） */
+.dtk-dialog-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 12px; }
 .dtk-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
 .dtk-label { font-size: 12px; opacity: .7; }
 .dtk-input, .dtk-select, .dtk-textarea {
@@ -533,6 +550,159 @@ html[data-devtask-active] [class*="centerCol"] > :not([data-devtask-view]) { vis
 .dtk-agent-created { font-size: 11px; opacity: .5; }
 .dtk-agent-status-select { width: auto; padding: 4px 6px; font-size: 12px; }
 .dtk-agent-delete { margin-left: auto; }
+
+/* 任务日志板块（design/06 §3）：占插件界面下半部分的条件渲染面板，
+   .dtk-scroll 的兄弟节点。外层 flex:none + max-height:55%（面板本体
+   overflow:hidden 不滚动），内层 body 承接全部纵向滚动，避免双层滚动。 */
+.dtk-logpanel {
+  flex: none; max-height: 55%; min-height: 180px;
+  display: flex; flex-direction: column; overflow: hidden;
+  border-top: 1px solid var(--border-color, rgba(0,0,0,0.14));
+  background: var(--dsw-alias-bg-layer-1, var(--bg-body, #fff));
+}
+.dtk-logpanel-head {
+  display: flex; align-items: center; gap: 8px; flex: none;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color, rgba(0,0,0,0.1));
+  background: var(--dsw-alias-bg-layer-2, var(--bg-elevated, rgba(0,0,0,0.02)));
+}
+.dtk-logpanel-kind {
+  flex: none; border-radius: 999px; padding: 2px 8px;
+  font-size: 11px; color: #fff; background: rgba(0,0,0,0.38);
+}
+.dtk-logpanel-kind[data-kind="objective"] { background: #7a5af8; }
+.dtk-logpanel-kind[data-kind="kr"] { background: #2f7df6; }
+.dtk-logpanel-kind[data-kind="task"] { background: #0a8f5b; }
+.dtk-logpanel-kind[data-kind="subtask"] { background: #6b7f0c; }
+.dtk-logpanel-title {
+  margin: 0; min-width: 0; flex: 1; font-size: 13px; font-weight: 650;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dtk-logpanel-deleted {
+  flex: none; border-radius: 4px; padding: 1px 6px; font-size: 11px;
+  color: #d4483b; border: 1px solid currentColor; opacity: .85;
+}
+.dtk-logpanel-meta { flex: none; font-size: 12px; opacity: .55; }
+.dtk-logpanel-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+.dtk-logpanel-close {
+  border: none; background: transparent; cursor: pointer;
+  padding: 2px 6px; font-size: 14px; line-height: 1.2; border-radius: 4px;
+  color: inherit; opacity: .6;
+}
+.dtk-logpanel-close:hover { opacity: 1; background: rgba(0,0,0,0.06); }
+.dtk-logpanel-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px; }
+.dtk-logpanel-hint { margin: 4px 0 8px; font-size: 12px; opacity: .55; }
+.dtk-logpanel-hint[data-kind="warn"] { opacity: .8; color: #b8860b; }
+
+/* 时间线：manual / system 两类条目以圆点区分，最新在上。 */
+.dtk-log-list { list-style: none; margin: 0; padding: 0; }
+.dtk-log-entry { padding: 6px 0 8px 14px; position: relative; font-size: 13px; }
+.dtk-log-entry + .dtk-log-entry { border-top: 1px dashed var(--border-color, rgba(0,0,0,0.08)); }
+.dtk-log-entry-dot {
+  position: absolute; left: 1px; top: 12px; width: 7px; height: 7px;
+  border-radius: 999px; background: rgba(0,0,0,0.3);
+}
+.dtk-log-entry[data-kind="system"] .dtk-log-entry-dot { background: rgba(0,0,0,0.18); }
+.dtk-log-entry[data-kind="manual"] .dtk-log-entry-dot { background: #0a8f5b; }
+.dtk-log-entry-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 12px; }
+.dtk-log-entry-time { opacity: .55; }
+.dtk-log-entry-author { opacity: .75; }
+.dtk-log-entry-edited { opacity: .5; font-size: 11px; }
+.dtk-log-entry[data-kind="system"] .dtk-log-entry-body { opacity: .65; }
+.dtk-log-entry-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
+
+/* composer（06 §4）：默认收起为单行虚线入口，展开为多行 Markdown + 署名 + 发布。 */
+.dtk-log-composer { margin: 2px 0 10px; }
+.dtk-log-composer-collapsed {
+  display: block; width: 100%; box-sizing: border-box; text-align: left;
+  padding: 7px 10px; border-radius: 8px; font: inherit; font-size: 13px;
+  color: inherit; opacity: .7; cursor: pointer;
+  border: 1px dashed var(--border-color, rgba(0,0,0,0.25));
+  background: var(--input-bg, transparent);
+}
+.dtk-log-composer-collapsed:hover { opacity: 1; }
+.dtk-log-composer-area {
+  width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.18));
+  background: var(--input-bg, transparent); color: inherit; font: inherit;
+  font-size: 13px; line-height: 1.55; resize: vertical; min-height: 72px;
+}
+.dtk-log-composer-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.dtk-log-composer-author { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; font-size: 12px; opacity: .75; }
+.dtk-log-composer-author select {
+  max-width: 140px; padding: 3px 6px; border-radius: 6px; font: inherit; font-size: 12px;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.18));
+  background: var(--input-bg, transparent); color: inherit;
+}
+
+/* manual 条目的作者操作（编辑/删除）与行内编辑态。 */
+.dtk-log-entry-actions { display: flex; gap: 2px; margin-left: auto; }
+.dtk-log-entry-actions .dtk-linkbtn { padding: 0 4px; font-size: 12px; opacity: .55; }
+.dtk-log-entry-actions .dtk-linkbtn:hover:not(:disabled) { opacity: 1; }
+.dtk-log-entry-actions .dtk-linkbtn:disabled { opacity: .3; cursor: default; }
+.dtk-log-entry-editor { display: flex; flex-direction: column; gap: 6px; }
+.dtk-log-entry-editarea {
+  width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.18));
+  background: var(--input-bg, transparent); color: inherit; font: inherit;
+  font-size: 13px; line-height: 1.55; resize: vertical;
+}
+.dtk-log-entry-editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.dtk-log-entry-error { margin: 0; color: #d4483b; font-size: 12px; }
+
+/* 文档引用选择器（06 §8.2）：内嵌两步面板，复用 devreviewer API。 */
+.dtk-log-composer-refrow { display: flex; gap: 6px; margin-bottom: 4px; }
+.dtk-log-composer-refrow .dtk-linkbtn { font-size: 12px; opacity: .75; }
+.dtk-log-composer-refrow .dtk-linkbtn:hover:not(:disabled) { opacity: 1; }
+.dtk-refpicker {
+  border: 1px solid var(--border-color, rgba(0,0,0,0.18));
+  border-radius: 6px; background: var(--dsw-alias-bg-base, #fff);
+  margin-top: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.dtk-refpicker-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px; border-bottom: 1px solid var(--border-color, rgba(0,0,0,0.08));
+}
+.dtk-refpicker-head strong { flex: 1; font-size: 11.5px; }
+.dtk-refpicker-head button {
+  border: none; background: transparent; font-size: 16px;
+  cursor: pointer; color: var(--dsw-alias-label-secondary, rgba(0,0,0,0.5));
+  line-height: 1; padding: 0;
+}
+.dtk-refpicker-body { padding: 4px; max-height: 240px; overflow-y: auto; }
+.dtk-refpicker-list { display: flex; flex-direction: column; gap: 2px; }
+.dtk-refpicker-tree { display: flex; flex-direction: column; gap: 1px; }
+.dtk-refpicker-dir {
+  display: flex; align-items: center; gap: 6px;
+  text-align: left; width: 100%; padding: 4px 6px; border-radius: 4px;
+  border: 1px solid transparent; background: transparent; cursor: pointer;
+  font-size: 11.5px; font-weight: 600;
+  color: var(--dsw-alias-label-primary, rgba(0,0,0,0.85));
+}
+.dtk-refpicker-dir:hover { background: var(--dsw-alias-bg-hover, rgba(0,0,0,0.06)); }
+.dtk-refpicker-arrow { flex-shrink: 0; font-size: 10px; width: 12px; color: var(--dsw-alias-label-tertiary, rgba(0,0,0,0.45)); }
+.dtk-refpicker-children { padding-left: 14px; display: flex; flex-direction: column; gap: 1px; }
+.dtk-refpicker-hint { font-size: 11.5px; color: var(--dsw-alias-label-tertiary, rgba(0,0,0,0.4)); padding: 6px; }
+.dtk-refpicker-item {
+  display: flex; align-items: center; gap: 6px;
+  text-align: left; width: 100%; padding: 4px 6px; border-radius: 4px;
+  border: 1px solid transparent; background: transparent; cursor: pointer;
+  font-size: 11.5px; color: var(--dsw-alias-label-primary, rgba(0,0,0,0.88));
+}
+.dtk-refpicker-item:hover { background: var(--dsw-alias-bg-hover, rgba(0,0,0,0.06)); }
+.dtk-refpicker-icon { flex-shrink: 0; font-size: 12px; }
+.dtk-refpicker-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dtk-refpicker-path { font-size: 10px; color: var(--dsw-alias-label-tertiary, rgba(0,0,0,0.4)); flex-shrink: 0; }
+.dtk-refpicker-back {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 11.5px; font-weight: 600; cursor: pointer;
+  border: none; background: transparent; padding: 4px 6px;
+  color: var(--brand-color, #3b6fd4); margin-bottom: 2px;
+}
+.dtk-refpicker-sep {
+  font-size: 10px; color: var(--dsw-alias-label-tertiary, rgba(0,0,0,0.4));
+  padding: 4px 6px 2px; text-transform: uppercase; letter-spacing: 0.5px;
+}
 `
 
 let injected = false

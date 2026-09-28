@@ -15,6 +15,10 @@ export interface TaskCardProps {
   t: TranslateNS<'devTaskLeft'>
   /** Employee roster for resolving owner name on the card. */
   employees: DevTaskState['employees']
+  /** 悬停卡片（日志 feed 预取的锚点，DevTaskPanel 做 300ms 防抖）。 */
+  onHover?(): void
+  /** 悬停离开：取消尚未触发的预取。 */
+  onHoverEnd?(): void
   onClick(): void
 }
 
@@ -30,7 +34,7 @@ function formatTime(iso: string, justNow: string): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
-function TaskCardInner({ task, t, employees, onClick }: TaskCardProps) {
+function TaskCardInner({ task, t, employees, onHover, onHoverEnd, onClick }: TaskCardProps) {
   const ownerName = task.employeeId === null
     ? null
     : employees.find(e => e.id === task.employeeId)?.name ?? task.employeeId
@@ -44,6 +48,8 @@ function TaskCardInner({ task, t, employees, onClick }: TaskCardProps) {
         event.dataTransfer.setData('text/plain', task.id)
         event.dataTransfer.effectAllowed = 'move'
       }}
+      onPointerEnter={onHover}
+      onPointerLeave={onHoverEnd}
       onClick={onClick}
       title={task.description !== '' ? task.description : task.title}
     >

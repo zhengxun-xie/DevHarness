@@ -22,7 +22,7 @@
  */
 import { execFile } from 'node:child_process'
 import { resolve } from 'node:path'
-import type { ActivityEvent } from '../protocol.ts'
+import type { ActivityEvent, LogSubjectKind, TaskLogEntry } from '../protocol.ts'
 
 /** 多维表格 app token（系统软件组OKR管理） */
 const BITABLE_APP_TOKEN = 'CoFgbBbduamIMwsu8CccyU50nnf'
@@ -502,15 +502,20 @@ function isRateLimitEnvelope(raw: unknown): boolean {
 }
 
 /**
- * 拉取单条任务记录的变更历史。
+ * 拉取单条记录的变更历史。
  * 限流抛 RateLimitError（调用方退避后整批重试）；其余失败返回空数组，
  * 不拖垮整体聚合。
+ *
+ * @param tableId 06 §7：去掉了任务表硬编码——O/KR/任务/子任务按各自
+ *                表 id 查询（子任务与任务同表）。
+ * @param strict  单主体日志查询用：任何失败都上抛（让响应带 historyError），
+ *                而不是静默返回空数组——空数组与「拉取失败」在那里必须可分。
  */
-async function listRecordHistory(recordId: string): Promise<RawHistoryItem[]> {
+async function listRecordHistory(recordId: string, tableId: string = TABLE_TASK, strict = false): Promise<RawHistoryItem[]> {
   const args = [
     'base', '+record-history-list',
     '--base-token', BITABLE_APP_TOKEN,
-    '--table-id', TABLE_TASK,
+    '--table-id', tableId,
     '--record-id', recordId,
     '--as', IDENTITY,
     '--format', 'json',
@@ -523,12 +528,17 @@ async function listRecordHistory(recordId: string): Promise<RawHistoryItem[]> {
     }
     if (!raw.ok) {
       if (isRateLimitEnvelope(raw)) throw new RateLimitError()
+      if (strict) throw new Error(`record-history-list 失败: ${JSON.stringify(raw.error ?? raw).slice(0, 200)}`)
       return []
     }
-    if (!Array.isArray(raw.data?.items)) return []
+    if (!Array.isArray(raw.data?.items)) {
+      if (strict) throw new Error('record-history-list 返回缺少 items')
+      return []
+    }
     return raw.data!.items!
   } catch (caught) {
     if (caught instanceof RateLimitError) throw caught
+    if (strict) throw caught
     return []
   }
 }
@@ -543,6 +553,8 @@ let activityInflight: Promise<ActivityEvent[]> | null = null
 /** 作废活动事件缓存（任务发生写操作后调用，保证动态立即可见）。 */
 export function invalidateActivityCache(): void {
   activityCache = null
+  subjectHistoryCache.clear()
+  subjectHistoryGen++
 }
 
 const sleep = (ms: number): Promise<void> => new Promise(r => setTimeout(r, ms))
@@ -575,6 +587,167 @@ export async function listRecentActivity(limit = 100, force = false): Promise<Ac
     return events.slice(0, limit)
   } finally {
     if (activityInflight === aggregation) activityInflight = null
+  }
+}
+
+/* ---------------------- 任务日志：单主体 record-history 物化（06 §7） ---------------------- */
+
+/** 主体层级 → 表 id（子任务与任务同表）。 */
+const TABLE_BY_SUBJECT_KIND: Record<LogSubjectKind, string> = {
+  objective: TABLE_OBJECTIVE,
+  kr: TABLE_KR,
+  task: TABLE_TASK,
+  subtask: TABLE_TASK,
+}
+
+/**
+ * 各表参与日志摘要的字段白名单（对应任务表的 ACTIVITY_FIELDS；O/KR 表
+ * 各自的可编辑字段，派生/公式字段同样过滤）。
+ */
+const LOG_FIELDS_BY_KIND: Record<LogSubjectKind, Set<string>> = {
+  objective: new Set([FIELD.objTitle, FIELD.objOwner, FIELD.objPeriod]),
+  kr: new Set([FIELD.krTitle, FIELD.krObjective, FIELD.krOwner, FIELD.krProgress]),
+  task: ACTIVITY_FIELDS,
+  subtask: ACTIVITY_FIELDS,
+}
+
+/**
+ * 单主体 history 的内存缓存（hover 预取与点击合并为一次 lark-cli；
+ * 重复打开同一主体 60s 内零等待，与活动流缓存同 TTL）。失败结果不缓存。
+ */
+const SUBJECT_HISTORY_TTL_MS = 60_000
+const subjectHistoryCache = new Map<string, { at: number; entries: TaskLogEntry[] }>()
+
+/** 进行中的单主体拉取（key: `${kind}:${id}`；双实例面板合并为一次真实调用）。 */
+const subjectHistoryInflight = new Map<string, Promise<{ entries: TaskLogEntry[]; error?: string }>>()
+
+/**
+ * 缓存代数：写操作作废缓存时自增。拉取期间若发生写操作（代数变了），
+ * 落地的是陈旧数据——不写入缓存（返回值照常给调用方，60s TTL 兜底纠偏）。
+ */
+let subjectHistoryGen = 0
+
+/**
+ * 活动流事件 → 单主体 system 日志条目（新→旧）。活动流缓存新鲜且覆盖该
+ * 主体时，`listSubjectHistory` 直接走这里物化，省掉一次 lark-cli。
+ * ActivityEvent.id（`${recordId}:${rev ?? at}`）与直接拉取生成的条目 id
+ * 同构，去重/React key 天然一致。
+ */
+function materializeHistoryFromActivity(
+  events: ActivityEvent[],
+  subjectId: string,
+  subjectKind: LogSubjectKind,
+  subjectTitle: string,
+): TaskLogEntry[] {
+  const entries: TaskLogEntry[] = []
+  for (const event of events) {
+    if (event.recordId !== subjectId) continue
+    entries.push({
+      id: event.id,
+      subjectId,
+      subjectKind,
+      subjectTitle,
+      kind: 'system',
+      author: { type: 'user', id: '', displayName: event.operator },
+      body: event.type === 'create'
+        ? '创建'
+        : event.changes.map(c => `「${c.field}」${c.before || '空'} → ${c.after || '空'}`).join('\n'),
+      createdAt: event.at,
+      updatedAt: null,
+    })
+  }
+  return entries
+}
+
+/**
+ * 单主体的 record-history 物化为 system 日志条目（新→旧），供日志面板
+ * 读取路径调用（06 §7）。带缓存外壳：60s TTL 命中或复用进行中的拉取时
+ * 零 lark-cli；task/subtask 且活动流缓存新鲜时直接物化复用（零调用）。
+ *
+ * 与 aggregateActivity 不同：真实拉取是 1 次 lark-cli 调用，失败**不吞**
+ * ——返回 `error` 让调用方在响应里带 historyError 标记，面板提示
+ * 「修改历史暂不可用」而不是静默显示不全。失败结果不写缓存。
+ *
+ * @param subjectTitle 物化条目的标题快照（调用方从自己 state 里带来；
+ *                     已删除的主体传空串，头部仍可显示本地条目的快照）。
+ */
+export async function listSubjectHistory(
+  subjectId: string,
+  subjectKind: LogSubjectKind,
+  subjectTitle: string,
+): Promise<{ entries: TaskLogEntry[]; error?: string }> {
+  const key = `${subjectKind}:${subjectId}`
+  const now = Date.now()
+  const cached = subjectHistoryCache.get(key)
+  if (cached !== undefined && now - cached.at < SUBJECT_HISTORY_TTL_MS) {
+    return { entries: cached.entries }
+  }
+  const inflight = subjectHistoryInflight.get(key)
+  if (inflight !== undefined) return inflight
+  // 活动流复用（仅任务表主体）：聚合时已拉过全部任务的 record-history，
+  // 缓存新鲜且覆盖该主体时直接物化，零 lark-cli。已删除的任务不在活动流
+  // 里（recordId 无匹配），照常走真实拉取让 lark-cli 判定真实状态。
+  if ((subjectKind === 'task' || subjectKind === 'subtask')
+    && activityCache !== null
+    && Date.now() - activityCache.at < ACTIVITY_TTL_MS
+    && activityCache.events.some(e => e.recordId === subjectId)) {
+    const entries = materializeHistoryFromActivity(activityCache.events, subjectId, subjectKind, subjectTitle)
+    subjectHistoryCache.set(key, { at: Date.now(), entries })
+    return { entries }
+  }
+  const gen = subjectHistoryGen
+  const fetching = fetchSubjectHistory(subjectId, subjectKind, subjectTitle).then(result => {
+    if (result.error === undefined && gen === subjectHistoryGen) {
+      subjectHistoryCache.set(key, { at: Date.now(), entries: result.entries })
+    }
+    return result
+  })
+  subjectHistoryInflight.set(key, fetching)
+  try {
+    return await fetching
+  } finally {
+    if (subjectHistoryInflight.get(key) === fetching) subjectHistoryInflight.delete(key)
+  }
+}
+
+/** 真实拉取流程（listSubjectHistory 的缓存/单飞外壳之内）。 */
+async function fetchSubjectHistory(
+  subjectId: string,
+  subjectKind: LogSubjectKind,
+  subjectTitle: string,
+): Promise<{ entries: TaskLogEntry[]; error?: string }> {
+  const tableId = TABLE_BY_SUBJECT_KIND[subjectKind]
+  const fields = LOG_FIELDS_BY_KIND[subjectKind]
+  try {
+    const items = await listRecordHistory(subjectId, tableId, true)
+    const entries: TaskLogEntry[] = []
+    for (const item of items) {
+      if (item.create_time === undefined) continue
+      const createdAt = new Date(item.create_time * 1000).toISOString()
+      const type = item.activity_type === 'create' ? 'create' : 'update'
+      const changes = (item.field_changes ?? [])
+        .filter(c => c.field_name !== undefined && fields.has(c.field_name))
+        .map(c => `「${c.field_name}」${historyValue(c.before) || '空'} → ${historyValue(c.after) || '空'}`)
+      if (type === 'update' && changes.length === 0) continue // 只剩派生字段变更，纯噪音
+      entries.push({
+        id: `${subjectId}:${item.rev ?? createdAt}`,
+        subjectId,
+        subjectKind,
+        subjectTitle,
+        kind: 'system',
+        author: { type: 'user', id: '', displayName: item.operator ?? '' },
+        body: type === 'create' ? '创建' : changes.join('\n'),
+        createdAt,
+        updatedAt: null,
+      })
+    }
+    entries.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    return { entries }
+  } catch (caught) {
+    // 限流是最常见的可恢复失败（活动流聚合可能正占着配额）；其余失败
+    //（超时、凭证）同样降级为 historyError，本地日志照常返回。
+    const message = caught instanceof Error ? caught.message : String(caught)
+    return { entries: [], error: `修改历史拉取失败：${message}` }
   }
 }
 
@@ -643,12 +816,44 @@ async function aggregateActivity(): Promise<ActivityEvent[]> {
   return events
 }
 
-/** 在多维表格中创建一条任务记录，返回新 record id。 */
+/**
+ * yyyy-mm-dd 或 ISO 字符串 → lark-cli datetime 写入格式 "YYYY-MM-DD HH:mm"。
+ * 纯日期直接补 00:00（不经 Date 往返，避免时区偏移）；无法解析返回 null。
+ */
+function toBitableDate(value: string): string | null {
+  const v = value.trim()
+  if (v === '') return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return `${v} 00:00`
+  const parsed = new Date(v)
+  if (Number.isNaN(parsed.getTime())) return null
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())} ${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`
+}
+
+/**
+ * 在多维表格中创建一条任务记录，返回新 record id。
+ *
+ * 字段写入格式（lark-cli +record-batch-create CellValue happy path）：
+ * text → 字符串；select → ["选项"]；user/link → [{ id }]
+ * datetime → "YYYY-MM-DD HH:mm"；number → 数值（任务进度为 0–1 量纲）。
+ * 子任务必须同写「父记录 2」与「KR（关键结果）」（与父任务同 KR），
+ * 缺 KR 链接的子任务会在项目视图掉进「未关联 KR 的任务」孤儿区。
+ */
 export async function createTask(input: {
   title: string
   description?: string
   status?: string
   employeeId?: string | null
+  /** 父记录 id（表内「父记录 2」link）；null/undefined = 顶层任务。 */
+  parentId?: string | null
+  /** KR 记录 id（「KR（关键结果）」link）；子任务须与父任务同 KR。 */
+  krId?: string | null
+  /** 开始日期 yyyy-mm-dd（写入时转 "YYYY-MM-DD HH:mm"）。 */
+  startDate?: string
+  /** 预计完成日期 yyyy-mm-dd。 */
+  dueDate?: string
+  /** 任务进度 0–1（与表内存量数据同量纲；undefined 不写）。 */
+  progress?: number
 }): Promise<string> {
   const fields: Record<string, unknown> = {
     [FIELD.title]: input.title,
@@ -661,6 +866,23 @@ export async function createTask(input: {
   }
   if (input.employeeId) {
     fields[FIELD.owner] = [{ id: input.employeeId }]
+  }
+  if (input.parentId !== undefined && input.parentId !== null && input.parentId !== '') {
+    fields[FIELD.parent] = [{ id: input.parentId }]
+  }
+  if (input.krId !== undefined && input.krId !== null && input.krId !== '') {
+    fields[FIELD.kr] = [{ id: input.krId }]
+  }
+  if (input.startDate !== undefined) {
+    const start = toBitableDate(input.startDate)
+    if (start !== null) fields[FIELD.startDate] = start
+  }
+  if (input.dueDate !== undefined) {
+    const due = toBitableDate(input.dueDate)
+    if (due !== null) fields[FIELD.dueDate] = due
+  }
+  if (input.progress !== undefined && Number.isFinite(input.progress)) {
+    fields[FIELD.progress] = input.progress
   }
 
   const json = JSON.stringify({ create_records: [fields] })

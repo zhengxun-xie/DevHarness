@@ -24,8 +24,35 @@ vi.mock('./bitable-client.ts', () => {
     listTasks: vi.fn(async () => ({ tasks: [...tasks], employees: [...employees] })),
     listObjectives: vi.fn(async () => ({ objectives: [...objectives], employees: [{ id: 'ou_ccc', name: '王五' }] })),
     listKeyResults: vi.fn(async () => ({ keyResults: [...keyResults], employees: [{ id: 'ou_ddd', name: '赵六' }] })),
-    createTask: vi.fn(async (input: { title: string }) => {
-      const rec = { id: `rec_${tasks.length + 1}`, title: input.title, status: 'todo', employeeId: null, priority: 'medium', tags: [], description: '', updatedAt: new Date().toISOString(), createdAt: new Date().toISOString() }
+    createTask: vi.fn(async (input: {
+      title: string
+      description?: string
+      status?: string
+      employeeId?: string | null
+      parentId?: string | null
+      krId?: string | null
+      startDate?: string
+      dueDate?: string
+      progress?: number
+    }) => {
+      // 回填完整字段：后续子任务创建经 listTasks 读回父任务（store 的
+      // 继承路径走的就是这份快照）。
+      const rec = {
+        id: `rec_${tasks.length + 1}`,
+        title: input.title,
+        status: input.status ?? 'todo',
+        employeeId: input.employeeId ?? null,
+        priority: 'medium',
+        tags: [],
+        description: input.description ?? '',
+        parentId: input.parentId ?? null,
+        krId: input.krId ?? null,
+        progress: input.progress ?? null,
+        startDate: input.startDate ?? null,
+        dueDate: input.dueDate ?? null,
+        updatedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      }
       tasks.push(rec)
       return rec.id
     }),
@@ -201,5 +228,84 @@ describe('agents', () => {
     mkdirSync(join(home, 'devtask'), { recursive: true })
     writeFileSync(join(home, 'devtask', 'registry.json'), JSON.stringify(registry))
     expect((await store.state()).agents).toEqual([])
+  })
+})
+
+describe('createTask 子任务（项目视图「＋ 添加子任务」）', () => {
+  /** 每个用例造一个带 KR 归属与负责人的父任务（rec_1）。 */
+  async function seedParent(): Promise<string> {
+    await bitable.createTask({ title: '移动子系统ROS2 2.0.0主线版本发布', employeeId: 'ou_aaa', krId: 'recK1', status: 'todo' })
+    return 'rec_1'
+  }
+
+  function viewIdOf(state: Awaited<ReturnType<InstanceType<typeof DevTaskStore>['state']>>): string {
+    return state.activeViewId ?? state.views[0]!.id
+  }
+
+  it('inherits the parent KR and owner, and writes the parent link', async () => {
+    const parentId = await seedParent()
+    const state = await store.state()
+    const next = await store.createTask({ viewId: viewIdOf(state), title: '底盘模块ROS2 2.0.0主线版本发布', parentId })
+    expect(bitable.createTask).toHaveBeenLastCalledWith(expect.objectContaining({
+      parentId,
+      krId: 'recK1',
+      employeeId: 'ou_aaa',
+    }))
+    // 子任务落进返回 state，父链接在客户端树里直接可用。
+    const created = next.tasks.find(t => t.title === '底盘模块ROS2 2.0.0主线版本发布')
+    expect(created?.parentId).toBe(parentId)
+    expect(created?.krId).toBe('recK1')
+  })
+
+  it('rejects an unknown parent instead of creating an orphan', async () => {
+    const state = await store.state()
+    await expect(store.createTask({ viewId: viewIdOf(state), title: '孤儿', parentId: 'rec_missing' }))
+      .rejects.toThrow(/parent task not found/)
+  })
+
+  it('lets an explicit employee override the inherited owner (and empty string clears it)', async () => {
+    const parentId = await seedParent()
+    const state = await store.state()
+    await store.createTask({ viewId: viewIdOf(state), title: '指定负责人', parentId, employeeId: 'ou_bbb' })
+    expect(bitable.createTask).toHaveBeenLastCalledWith(expect.objectContaining({ employeeId: 'ou_bbb' }))
+
+    await store.createTask({ viewId: viewIdOf(state), title: '不指派', parentId, employeeId: '' })
+    expect(bitable.createTask).toHaveBeenLastCalledWith(expect.objectContaining({ employeeId: null }))
+  })
+
+  it('converts 0–100 percent progress to the 0–1 Bitable scale and clamps', async () => {
+    const parentId = await seedParent()
+    const state = await store.state()
+    await store.createTask({ viewId: viewIdOf(state), title: '带进度', parentId, progress: 40 })
+    expect(bitable.createTask).toHaveBeenLastCalledWith(expect.objectContaining({ progress: 0.4 }))
+
+    await store.createTask({ viewId: viewIdOf(state), title: '越界进度', parentId, progress: 120 })
+    expect(bitable.createTask).toHaveBeenLastCalledWith(expect.objectContaining({ progress: 1 }))
+  })
+
+  it('passes dates through to Bitable writes', async () => {
+    const parentId = await seedParent()
+    const state = await store.state()
+    await store.createTask({
+      viewId: viewIdOf(state),
+      title: '带日期',
+      parentId,
+      startDate: '2026-10-01',
+      dueDate: '2026-10-15',
+    })
+    expect(bitable.createTask).toHaveBeenLastCalledWith(expect.objectContaining({
+      startDate: '2026-10-01',
+      dueDate: '2026-10-15',
+    }))
+  })
+
+  it('keeps top-level creation unassigned on the team view', async () => {
+    const state = await store.state()
+    await store.createTask({ viewId: viewIdOf(state), title: '顶层任务' })
+    expect(bitable.createTask).toHaveBeenLastCalledWith(expect.objectContaining({
+      parentId: null,
+      krId: null,
+      employeeId: null,
+    }))
   })
 })

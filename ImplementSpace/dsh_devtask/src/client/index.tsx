@@ -37,6 +37,8 @@ declare module '@deepseek-ai/dsh-client-ui-sidebar-right/client' {
   /** DevDelivery accepts project context when an OKR project node is selected. */
   interface SidebarRightTabParamsMap {
     devdelivery: { project?: { id: string; name: string; path?: string; workspaceId?: string } }
+    /** Deep-link to a DevReviewer document (design/06 §8.2 doc-ref click). */
+    devreviewer: { projectId?: string; document?: string }
   }
 }
 

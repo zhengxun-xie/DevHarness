@@ -297,6 +297,11 @@ export interface SelectViewRequest {
  * employee when the task is created from an individual-perspective view —
  * that employee becomes the Bitable「负责人」. `tags` are accepted but not
  * written to Bitable (no matching field); they stay in-memory only.
+ *
+ * 子任务创建（项目视图「＋ 添加子任务」）：设置 `parentId` 时新记录写入
+ * 表内「父记录 2」链接，并继承父任务的 KR 归属（子任务必须与父任务同 KR，
+ * 否则会掉进「未关联 KR 的任务」孤儿区）。负责人优先级：显式 `employeeId`
+ * （空串 = 明确不指派）> 父任务负责人 > 视角绑定员工。
  */
 export interface CreateTaskRequest {
   viewId: string
@@ -305,6 +310,16 @@ export interface CreateTaskRequest {
   status?: string
   priority?: string
   tags?: string[]
+  /** 父任务记录 id；设置时创建子任务（表内「父记录 2」），否则顶层任务。 */
+  parentId?: string
+  /** 负责人 open_id。undefined = 继承（父任务 → 视角）；'' = 明确不指派。 */
+  employeeId?: string
+  /** 开始日期 yyyy-mm-dd。 */
+  startDate?: string
+  /** 预计完成日期 yyyy-mm-dd。 */
+  dueDate?: string
+  /** 任务进度 0–100 百分比；host 写入 Bitable 时换算为 0–1 量纲。 */
+  progress?: number
 }
 
 /** The mutable subset of a task; absent fields stay untouched. */
@@ -369,6 +384,113 @@ export interface ActivityEvent {
 /** GET /activity response: newest-first, capped at `limit` events. */
 export interface ActivityFeed {
   events: ActivityEvent[]
+}
+
+/* ----------------------------- 任务日志（06 §5） ----------------------------- */
+
+/** 日志主体层级——OKR 四层树的任意一层都可以挂日志。 */
+export type LogSubjectKind = 'objective' | 'kr' | 'task' | 'subtask'
+
+/** Runtime guard for client-supplied subject kinds. */
+export function isLogSubjectKind(value: unknown): value is LogSubjectKind {
+  return value === 'objective' || value === 'kr' || value === 'task' || value === 'subtask'
+}
+
+/**
+ * 日志作者。人为日志记录用户（open_id + 显示名）；record-history 物化的
+ * system 条目作者填操作人；插件自身的 system 条目（删除事件）填
+ * `{ type: 'system', id: 'devtask' }`。
+ */
+export interface LogAuthorRef {
+  type: 'user' | 'system'
+  id: string
+  displayName: string
+}
+
+/**
+ * One timeline entry of a task log. `manual` entries are persisted as local
+ * md files (`TL-0001-*.md`); `system` entries are either materialised from
+ * the Bitable record history at read time (id `<recordId>:<rev>`, never
+ * persisted) or local snapshots of events the record history cannot see
+ * (task deletion).
+ */
+export interface TaskLogEntry {
+  /** `TL-0001` for persisted entries; `<recordId>:<rev>` for materialised ones. */
+  id: string
+  /** Bitable record id — uniform across O/KR/task/subtree levels. */
+  subjectId: string
+  subjectKind: LogSubjectKind
+  /** Snapshot at write time; keeps deleted subjects displayable. */
+  subjectTitle: string
+  kind: 'system' | 'manual'
+  author: LogAuthorRef
+  /** Markdown for `manual`; plain-text summary for `system`. */
+  body: string
+  /** ISO timestamp. */
+  createdAt: string
+  updatedAt: string | null
+}
+
+/** POST /logs body — manual entries only; the host forces `kind: 'manual'`. */
+export interface CreateTaskLogRequest {
+  subjectId: string
+  subjectKind: LogSubjectKind
+  subjectTitle: string
+  body: string
+  author: LogAuthorRef
+}
+
+/** POST /logs/update body; `sha` is the optimistic-lock checksum. */
+export interface UpdateTaskLogRequest {
+  id: string
+  body: string
+  sha: string
+}
+
+/** POST /logs/remove body; `sha` is the optimistic-lock checksum. */
+export interface RemoveTaskLogRequest {
+  id: string
+  sha: string
+}
+
+/**
+ * A persisted entry plus the sha256 checksum of its source file — the
+ * read-side token for the update/remove optimistic lock (06 §11 多端并发).
+ * Materialised record-history entries have no file, hence no sha.
+ */
+export interface PersistedTaskLogEntry extends TaskLogEntry {
+  sha: string
+}
+
+/** GET /logs query. */
+export interface TaskLogQuery {
+  subjectId: string
+  subjectKind: LogSubjectKind
+  /**
+   * Title hint for materialising record-history entries (the client already
+   * holds it in its state snapshot; saved entries carry their own).
+   */
+  subjectTitle?: string
+  /**
+   * When true, skip the record-history lark-cli fetch and return only local
+   * persisted entries immediately — the client renders them instantly, then
+   * fires a second request without this flag to pull history in the
+   * background (two-phase loading, 06 §7 读取路径优化).
+   */
+  localOnly?: boolean
+}
+
+/**
+ * Logs response. `entries` are the persisted local entries carrying their
+ * optimistic-lock sha (the part every mutating endpoint returns); `history`
+ * holds the read-time materialised record-history system entries (GET only,
+ * never persisted, no sha).
+ */
+export interface TaskLogResponse {
+  entries: PersistedTaskLogEntry[]
+  history: TaskLogEntry[]
+  /** Set when the record-history fetch failed; local entries still return. */
+  historyError?: string
 }
 
 /** Generic error body. */

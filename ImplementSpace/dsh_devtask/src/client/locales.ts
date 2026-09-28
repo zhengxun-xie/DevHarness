@@ -40,6 +40,15 @@ export type DevTaskKey =
   | 'task.empty'
   | 'task.emptyHint'
   | 'task.count'
+  | 'subtask.new'
+  | 'subtask.create'
+  | 'subtask.parentLabel'
+  | 'subtask.owner'
+  | 'subtask.ownerInherit'
+  | 'subtask.ownerNone'
+  | 'subtask.startDate'
+  | 'subtask.dueDate'
+  | 'subtask.progressInvalid'
   | 'status.backlog'
   | 'status.todo'
   | 'status.running'
@@ -107,6 +116,31 @@ export type DevTaskKey =
   | 'okr.orphans'
   | 'okr.orphanKrs'
   | 'okr.selfReported'
+  | 'log.kind.objective'
+  | 'log.kind.kr'
+  | 'log.kind.task'
+  | 'log.kind.subtask'
+  | 'log.loading'
+  | 'log.empty'
+  | 'log.historyError'
+  | 'log.historyLoading'
+  | 'log.delivery'
+  | 'log.deleted'
+  | 'log.close'
+  | 'log.count'
+  | 'log.write'
+  | 'log.author'
+  | 'log.publish'
+  | 'log.removeEntry'
+  | 'log.removeConfirm'
+  | 'log.conflict'
+  | 'log.refDocButton'
+  | 'log.refDocTitle'
+  | 'log.refDocEmpty'
+  | 'log.refDocLoading'
+  | 'log.refDocWhole'
+  | 'log.refDocHeadings'
+  | 'log.refDocUnavailable'
 
 /** Locale dictionary: the DSH locale runtime keys dictionaries as `zh` / `en`. */
 export const dictionaries = {
@@ -150,6 +184,15 @@ export const dictionaries = {
     'task.empty': '该列暂无任务',
     'task.emptyHint': '点击右上角「新建任务」开始',
     'task.count': '个任务',
+    'subtask.new': '添加子任务',
+    'subtask.create': '创建子任务',
+    'subtask.parentLabel': '添加到：',
+    'subtask.owner': '负责人',
+    'subtask.ownerInherit': '跟随父任务',
+    'subtask.ownerNone': '暂不指派',
+    'subtask.startDate': '开始日期',
+    'subtask.dueDate': '预计完成日期',
+    'subtask.progressInvalid': '任务进度需在 0–100 之间',
     'status.backlog': '待办池',
     'status.todo': '待开始',
     'status.running': '进行中',
@@ -217,6 +260,31 @@ export const dictionaries = {
     'okr.orphans': '未关联 KR 的任务',
     'okr.orphanKrs': '未关联目标的 KR',
     'okr.selfReported': '自报进度',
+    'log.kind.objective': '目标',
+    'log.kind.kr': '关键结果',
+    'log.kind.task': '任务',
+    'log.kind.subtask': '子任务',
+    'log.loading': '正在加载日志…',
+    'log.historyLoading': '正在拉取修改历史…',
+    'log.empty': '暂无日志',
+    'log.historyError': '修改历史暂不可用，仅显示本地日志',
+    'log.delivery': '交付',
+    'log.deleted': '已删除',
+    'log.close': '关闭日志面板',
+    'log.count': '{n} 条日志',
+    'log.write': '写日志…',
+    'log.author': '署名',
+    'log.publish': '发布',
+    'log.removeEntry': '删除日志',
+    'log.removeConfirm': '确定删除这条日志？',
+    'log.conflict': '该日志已被其他窗口修改，请重新打开面板后重试',
+    'log.refDocButton': '📎 引用文档',
+    'log.refDocTitle': '引用文档',
+    'log.refDocEmpty': '项目目录下没有 markdown 文件。',
+    'log.refDocLoading': '加载标题中…',
+    'log.refDocWhole': '整篇文档',
+    'log.refDocHeadings': '标题',
+    'log.refDocUnavailable': '引用文档不可用（需启用 DevReviewer 插件）',
   },
   en: {
     'panel.title': 'DevTask',
@@ -258,6 +326,15 @@ export const dictionaries = {
     'task.empty': 'No tasks in this column',
     'task.emptyHint': 'Click "New task" to start',
     'task.count': 'tasks',
+    'subtask.new': 'Add subtask',
+    'subtask.create': 'Create subtask',
+    'subtask.parentLabel': 'Adding under: ',
+    'subtask.owner': 'Owner',
+    'subtask.ownerInherit': 'Follow parent',
+    'subtask.ownerNone': 'Unassigned',
+    'subtask.startDate': 'Start date',
+    'subtask.dueDate': 'Due date',
+    'subtask.progressInvalid': 'Progress must be between 0 and 100',
     'status.backlog': 'Backlog',
     'status.todo': 'To do',
     'status.running': 'Running',
@@ -325,6 +402,31 @@ export const dictionaries = {
     'okr.orphans': 'Tasks without a KR',
     'okr.orphanKrs': 'KRs without an objective',
     'okr.selfReported': 'Reported progress',
+    'log.kind.objective': 'Objective',
+    'log.kind.kr': 'Key result',
+    'log.kind.task': 'Task',
+    'log.kind.subtask': 'Subtask',
+    'log.loading': 'Loading logs…',
+    'log.historyLoading': 'Fetching change history…',
+    'log.empty': 'No logs yet',
+    'log.historyError': 'Change history unavailable — showing local logs only',
+    'log.delivery': 'Delivery',
+    'log.deleted': 'Deleted',
+    'log.close': 'Close log panel',
+    'log.count': '{n} logs',
+    'log.write': 'Write a log…',
+    'log.author': 'Author',
+    'log.publish': 'Publish',
+    'log.removeEntry': 'Delete log',
+    'log.removeConfirm': 'Delete this log entry?',
+    'log.conflict': 'This entry was modified elsewhere — reopen the panel and retry',
+    'log.refDocButton': '📎 Reference doc',
+    'log.refDocTitle': 'Reference document',
+    'log.refDocEmpty': 'No markdown files found in the project directory.',
+    'log.refDocLoading': 'Loading headings…',
+    'log.refDocWhole': 'Whole document',
+    'log.refDocHeadings': 'Headings',
+    'log.refDocUnavailable': 'Document reference unavailable (requires DevReviewer plugin)',
   },
 } as const
 
